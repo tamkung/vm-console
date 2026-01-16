@@ -10,6 +10,7 @@ export async function POST(
         const { vmid } = await params;
         const { searchParams } = new URL(request.url);
         const node = searchParams.get('node');
+        const type = searchParams.get('type') || 'qemu';
 
         if (!vmid || !node) {
             return NextResponse.json({ error: 'Missing vmid or node' }, { status: 400 });
@@ -37,7 +38,7 @@ export async function POST(
         const client = new ProxmoxClient(url);
 
         // Start VNC Proxy
-        const vncData = await client.getVncProxy(node, parseInt(vmid), ticket, csrfToken);
+        const vncData = await client.getVncProxy(node, parseInt(vmid), ticket, csrfToken, type as 'qemu' | 'lxc');
 
         return NextResponse.json({
             ...vncData.data,

@@ -21,22 +21,31 @@ export async function GET() { // Remove 'request' if unused
         // Get nodes first
         const nodes = await client.getNodes(ticket);
 
-        // Fetch VMs from all nodes, ignoring failed ones
-        const vmPromises = nodes.map(async (node) => {
-            try {
-                return await client.getVms(node, ticket);
-            } catch (e: any) {
+        // Fetch VMs and LXCs from all nodes
+        const promises = nodes.flatMap((node) => {
+            const vmsPromise = client.getVms(node, ticket).catch(e => {
                 console.error(`Failed to fetch VMs from node ${node}:`, e.message);
                 return [];
-            }
+            });
+            const lxcsPromise = client.getLxcs(node, ticket).catch(e => {
+                console.error(`Failed to fetch LXCs from node ${node}:`, e.message);
+                return [];
+            });
+            return [vmsPromise, lxcsPromise];
         });
 
-        const results = await Promise.all(vmPromises);
+        // promises is now array of promises (flatmapped? no wait)
+        // flatMap returns flattened array of return values. 
+        // My return value is [Promise, Promise]. So flatMap makes it [Promise, Promise, Promise, Promise...]
+        // Correct.
 
-        // Flatten the array of arrays
-        const vms: ProxmoxVm[] = results.flat().sort((a, b) => a.vmid - b.vmid);
+        const results = await Promise.all(promises);
 
-        return NextResponse.json({ vms });
+        // Flatten the array of arrays (results from promises)
+        // results is (ProxmoxVm[] | ProxmoxLxc[])[]
+        const allResources = results.flat().sort((a, b) => a.vmid - b.vmid);
+
+        return NextResponse.json({ vms: allResources });
     } catch (error: unknown) {
         console.error('Fetch VMs error:', error);
         const message = error instanceof Error ? error.message : 'Unknown error';

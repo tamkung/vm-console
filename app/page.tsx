@@ -35,11 +35,16 @@ export default function LoginPage() {
 
       const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
+      if (data.success) {
+        // Store the encrypted credentials blob for sharing features
+        if (data.credentialsToken) {
+            sessionStorage.setItem('vm_console_creds', data.credentialsToken);
+        }
+        
+        router.push('/dashboard');
+      } else {
+        setError(data.error || 'Login failed');
       }
-
-      router.push('/dashboard');
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);

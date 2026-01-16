@@ -7,6 +7,27 @@ export interface ProxmoxTicketResponse {
     };
 }
 
+export interface ProxmoxLxc {
+    vmid: number;
+    name: string;
+    status: 'running' | 'stopped' | 'paused';
+    cpus: number;
+    lock?: string;
+    maxdisk: number;
+    maxmem: number;
+    maxswap: number;
+    node: string;
+    uptime: number;
+    netout: number;
+    diskread: number;
+    diskwrite: number;
+    netin: number;
+    mem: number;
+    swap: number;
+    cpu: number;
+    type?: 'lxc';
+}
+
 export interface ProxmoxVm {
     vmid: number;
     name: string;
@@ -23,6 +44,7 @@ export interface ProxmoxVm {
     netin: number;
     mem: number;
     cpu: number;
+    type?: 'qemu';
 }
 
 export interface ProxmoxNodeListResponse {
@@ -45,6 +67,10 @@ export interface ProxmoxVmListResponse {
     data: ProxmoxVm[];
 }
 
+export interface ProxmoxLxcListResponse {
+    data: ProxmoxLxc[];
+}
+
 export interface VncProxyResponse {
     data: {
         ticket: string;
@@ -64,13 +90,6 @@ export class ProxmoxClient {
 
     private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
         const url = `${this.fileUrl}${path}`;
-        // Handle self-signed certs in development
-
-
-        // Note: In Next.js edge runtime or standard fetch, 'agent' isn't directly supported in the same way as node-fetch
-        // But for Node.js runtime (default for API routes), we might need a custom agent if we want to ignore SSL errors.
-        // simpler approach for MVP: Assume user configures NODE_TLS_REJECT_UNAUTHORIZED=0 in env if needed,
-        // OR use a specific dispatcher if using undici (Next.js 13+ default).
 
         const res = await fetch(url, {
             ...options,
@@ -84,7 +103,6 @@ export class ProxmoxClient {
             let errorMessage = `Proxmox API error: ${res.status} ${res.statusText}`;
             try {
                 const text = await res.text();
-                // Check if response is likely HTML
                 if (text.trim().startsWith('<')) {
                     errorMessage += ' (HTML Response)';
                 } else if (text.length > 200) {
@@ -93,7 +111,7 @@ export class ProxmoxClient {
                     errorMessage += ` - ${text}`;
                 }
             } catch (e) {
-                // Ignore body read error
+                // Ignore
             }
             throw new Error(errorMessage);
         }
@@ -127,14 +145,23 @@ export class ProxmoxClient {
                 Cookie: `PVEAuthCookie=${ticket}`,
             },
         });
-        return res.data.map(vm => ({ ...vm, node }));
+        return res.data.map(vm => ({ ...vm, node, type: 'qemu' }));
     }
 
-    async getVncProxy(node: string, vmid: number, ticket: string, csrfToken: string): Promise<VncProxyResponse> {
+    async getLxcs(node: string, ticket: string): Promise<ProxmoxLxc[]> {
+        const res = await this.fetch<ProxmoxLxcListResponse>(`/api2/json/nodes/${node}/lxc`, {
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+            },
+        });
+        return res.data.map(lxc => ({ ...lxc, node, type: 'lxc' }));
+    }
+
+    async getVncProxy(node: string, vmid: number, ticket: string, csrfToken: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<VncProxyResponse> {
         const params = new URLSearchParams();
         params.append('websocket', '1');
 
-        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/qemu/${vmid}/vncproxy`, {
+        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/${type}/${vmid}/vncproxy`, {
             method: 'POST',
             body: params,
             headers: {
@@ -144,10 +171,10 @@ export class ProxmoxClient {
         });
     }
 
-    async vmStatus(node: string, vmid: number, action: 'start' | 'stop' | 'reset' | 'shutdown' | 'suspend' | 'resume' | 'reboot', ticket: string, csrfToken: string): Promise<string> {
+    async vmStatus(node: string, vmid: number, action: 'start' | 'stop' | 'reset' | 'shutdown' | 'suspend' | 'resume' | 'reboot', ticket: string, csrfToken: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<string> {
         const params = new URLSearchParams();
 
-        return this.fetch<string>(`/api2/json/nodes/${node}/qemu/${vmid}/status/${action}`, {
+        return this.fetch<string>(`/api2/json/nodes/${node}/${type}/${vmid}/status/${action}`, {
             method: 'POST',
             body: params,
             headers: {

@@ -11,6 +11,7 @@
   "dependencies": {
     "cross-env": "^10.1.0",
     "http-proxy-middleware": "^3.0.5",
+    "jsonwebtoken": "^9.0.3",
     "next": "16.1.2",
     "novnc-next": "^1.0.0",
     "react": "19.2.3",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -24,6 +24,7 @@ export default function ConsolePage() {
   const params = useParams();
   const vmid = params?.vmid as string;
   const node = searchParams?.get('node');
+  const type = searchParams?.get('type') || 'qemu';
   
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFBInstance | null>(null);
@@ -44,7 +45,7 @@ export default function ConsolePage() {
 
     const connectVnc = async () => {
       try {
-        const res = await fetch(`/api/console/${vmid}/ticket?node=${node}`, {
+        const res = await fetch(`/api/console/${vmid}/ticket?node=${node}&type=${type}`, {
           method: 'POST',
         });
 
@@ -60,8 +61,8 @@ export default function ConsolePage() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host; 
         
-        // Proxy Path: /api/proxy/api2/json/nodes/<node>/qemu/<vmid>/vncwebsocket
-        const path = `api/proxy/api2/json/nodes/${node}/qemu/${vmid}/vncwebsocket?port=${port}&vncticket=${encodeURIComponent(ticket)}`;
+        // Proxy Path: /api/proxy/api2/json/nodes/<node>/<type>/<vmid>/vncwebsocket
+        const path = `api/proxy/api2/json/nodes/${node}/${type}/${vmid}/vncwebsocket?port=${port}&vncticket=${encodeURIComponent(ticket)}`;
         const url = `${protocol}//${host}/${path}`;
 
         console.log('Connecting to (Proxy):', url);

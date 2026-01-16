@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+// import jwt from 'jsonwebtoken';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -44,8 +45,6 @@ app.prepare().then(() => {
             // @ts-ignore - http-proxy-middleware types are a bit tricky with 'upgrade'
             proxy.upgrade(req, socket, head);
         } else {
-            // Let Next.js handle it (if it has any WS, though usually it doesn't without extra setup)
-            // or just close it?
             // socket.destroy();
         }
     });

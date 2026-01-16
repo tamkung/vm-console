@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { ProxmoxClient } from '@/lib/proxmox';
+import { encrypt } from '@/lib/auth';
 
 export async function POST(request: Request) {
     try {
@@ -86,7 +87,19 @@ export async function POST(request: Request) {
             cookieStore.delete('PROXMOX_HOST');
         }
 
-        return NextResponse.json({ success: true, username: auth.data.username });
+        // Create encrypted credentials blob for client to store (for sharing features)
+        const credsPayload = {
+            username: auth.data.username, // Use the returned full username
+            password: password, // The password used for login
+            host: url // The host used
+        };
+        const credentialsToken = encrypt(JSON.stringify(credsPayload));
+
+        return NextResponse.json({
+            success: true,
+            username: auth.data.username,
+            credentialsToken
+        });
     } catch (error: unknown) {
         console.error('Login error:', error);
         const message = error instanceof Error ? error.message : 'Unknown error';

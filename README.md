@@ -9,8 +9,6 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 ### 🔐 Secure Authentication
 - Support for **PAM** and **PVE** authentication realms.
 - **Custom Host Login**: Connect to any Proxmox server URL directly from the login page (overrides default env config).
-- **Secure Persistence**: Uses **HttpOnly Cookies** for session management.
-- **Middleware Protection**: Unauthenticated access to dashboard/console is blocked server-side.
 
 ### 🖥️ VM Management Dashboard
 - View list of VMs with real-time status (Running, Stopped, Paused).
@@ -60,6 +58,9 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 
     # Allow self-signed certificates (Development only)
     NODE_TLS_REJECT_UNAUTHORIZED=0
+
+    # JWT Secret for VM Sharing (Required for share links)
+    JWT_SECRET=your-secret-key-at-least-32-chars
     ```
 
 4.  **Run Development Server**:
@@ -72,32 +73,28 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 5.  **Open Browser**:
     Navigate to `http://localhost:3000`
 
-71: 
-72: 5.  **Open Browser**:
-73:     Navigate to `http://localhost:3000`
-74: 
-75: ---
-76: 
-77: ## 🐳 Docker Support
-78: 
-79: The project includes a `Dockerfile` and GitHub Actions workflow to automatically build and push images to Docker Hub.
-80: 
-81: ### Running with Docker
-82: 
-83: You can run the application using Docker, providing custom environment variables at runtime:
-84: 
-85: ```bash
-86: docker run -d \
-87:   -p 3000:3000 \
-88:   -e PROXMOX_URL="https://192.168.1.100:8006" \
-89:   -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
-90:   --name proxmox-console \
-91:   yourusername/proxmox-web-console:latest
-92: ```
-93: 
-94: *Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
-95: 
-96: ---
+---
+
+## 🐳 Docker Support
+
+The project includes a `Dockerfile` and GitHub Actions workflow to automatically build and push images to Docker Hub.
+
+### Running with Docker
+
+You can run the application using Docker, providing custom environment variables at runtime:
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -e PROXMOX_URL="https://192.168.1.100:8006" \
+  -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
+  --name proxmox-console \
+  yourusername/proxmox-web-console:latest
+```
+
+*Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
+
+---
 
 ## 📖 Usage Guide
 
@@ -112,6 +109,14 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 3.  **Controls**:
     - Use the top toolbar to send special keys.
     - Use the **Show/Hide Controls** button to slide the toolbar out of the way.
+
+### Sharing VMs
+1.  Click the **Share 🔗** button on any running VM card.
+2.  Select a **Duration** (e.g., 1 Hour).
+3.  Enter your **Proxmox Username** (e.g., `root@pam`) and **Password**.
+    - *Note: These credentials are encrypted inside the share link so the guest can authenticate automatically. They are not stored on the server.*
+4.  Copy the generated link and send it to your guest.
+
 
 ---
 

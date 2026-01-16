@@ -4,7 +4,7 @@ import { ProxmoxClient } from '@/lib/proxmox';
 
 export async function POST(request: NextRequest) {
     try {
-        const { vmid, node, action } = await request.json();
+        const { vmid, node, action, type = 'qemu' } = await request.json();
 
         if (!vmid || !node || !action) {
             return NextResponse.json({ error: 'Missing vmid, node, or action' }, { status: 400 });
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
         const client = new ProxmoxClient(url);
 
-        await client.vmStatus(node, vmid, action, ticket, csrfToken);
+        await client.vmStatus(node, vmid, action, ticket, csrfToken, type as 'qemu' | 'lxc');
 
         return NextResponse.json({ success: true });
     } catch (error: unknown) {
