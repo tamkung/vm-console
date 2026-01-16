@@ -2,14 +2,14 @@ name: Docker Build and Publish
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: docker.io
-  # github.repository as <account>/<repo>
-  IMAGE_NAME: ${{ github.repository }}
+  # Docker Hub username
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/vm-console
 
 jobs:
   build:
