@@ -39,9 +39,11 @@ export async function POST(request: NextRequest) {
         const token = signShareToken({ vmid, node, username, password, host: targetHost, type: type as 'qemu' | 'lxc' }, `${duration}m`);
 
         // Return full share URL
+        // We need the origin to construct the full link 
+        // const origin = request.nextUrl.origin;
         const proto = request.headers.get('x-forwarded-proto') ?? 'http';
-        const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-        const origin = `${proto}://${host}`;
+        const reqHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+        const origin = `${proto}://${reqHost}`;
         
         const link = `${origin}/share?token=${token}`;
 
