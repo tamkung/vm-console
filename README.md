@@ -72,7 +72,32 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 5.  **Open Browser**:
     Navigate to `http://localhost:3000`
 
----
+71: 
+72: 5.  **Open Browser**:
+73:     Navigate to `http://localhost:3000`
+74: 
+75: ---
+76: 
+77: ## 🐳 Docker Support
+78: 
+79: The project includes a `Dockerfile` and GitHub Actions workflow to automatically build and push images to Docker Hub.
+80: 
+81: ### Running with Docker
+82: 
+83: You can run the application using Docker, providing custom environment variables at runtime:
+84: 
+85: ```bash
+86: docker run -d \
+87:   -p 3000:3000 \
+88:   -e PROXMOX_URL="https://192.168.1.100:8006" \
+89:   -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
+90:   --name proxmox-console \
+91:   yourusername/proxmox-web-console:latest
+92: ```
+93: 
+94: *Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
+95: 
+96: ---
 
 ## 📖 Usage Guide
 
