@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 // RFB import moved to useEffect to avoid SSR window error
 
@@ -11,7 +11,7 @@ const KEY_CTRL = 0xffe3;
 const KEY_ALT = 0xffe9;
 const KEY_WIN = 0xffeb;
 
-export default function SharePage() {
+function SharePageContent() {
   const searchParams = useSearchParams();
   const token = searchParams?.get('token');
   
@@ -298,5 +298,13 @@ export default function SharePage() {
         <div ref={screenRef} className="w-full h-full" />
       </div>
     </div>
+  );
+}
+
+export default function SharePage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen w-screen bg-black items-center justify-center text-white">Loading...</div>}>
+      <SharePageContent />
+    </Suspense>
   );
 }

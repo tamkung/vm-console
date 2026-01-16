@@ -88,6 +88,7 @@ docker run -d \
   -p 3000:3000 \
   -e PROXMOX_URL="https://192.168.1.100:8006" \
   -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
+  -e JWT_SECRET="your-secret-key-at-least-32-chars" \
   --name proxmox-console \
   yourusername/proxmox-web-console:latest
 ```
