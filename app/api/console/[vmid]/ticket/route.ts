@@ -38,7 +38,17 @@ export async function POST(
         const client = new ProxmoxClient(url);
 
         // Start VNC Proxy
-        const vncData = await client.getVncProxy(node, parseInt(vmid), ticket, csrfToken, type as 'qemu' | 'lxc');
+        // For LXC, we use termproxy. For QEMU, vncproxy.
+        // However, the standard PVE GUI uses 'vncproxy' for both? No, for Shell it uses termproxy.
+        // The previous implementation for Share used getTermProxy for LXC.
+        // Let's implement similar logic here.
+
+        let vncData;
+        if (type === 'lxc') {
+            vncData = await client.getTermProxy(node, parseInt(vmid), ticket, csrfToken);
+        } else {
+            vncData = await client.getVncProxy(node, parseInt(vmid), ticket, csrfToken, type as 'qemu' | 'lxc');
+        }
 
         return NextResponse.json({
             ...vncData.data,

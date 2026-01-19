@@ -39,9 +39,14 @@ export async function POST(request: NextRequest) {
         const auth = await client.login(user, password, realm);
         const ticket = auth.data.ticket;
 
-        // Get VNC Ticket using this new session
+        // Get VNC or Term Ticket using this new session
         // Validates that this user actually has permission
-        const vncData = await client.getVncProxy(node, vmid, ticket, auth.data.CSRFPreventionToken, type as 'qemu' | 'lxc');
+        let vncData;
+        if (type === 'lxc') {
+            vncData = await client.getTermProxy(node, vmid, ticket, auth.data.CSRFPreventionToken);
+        } else {
+            vncData = await client.getVncProxy(node, vmid, ticket, auth.data.CSRFPreventionToken, type as 'qemu' | 'lxc');
+        }
 
         // Create response with cookie
         const response = NextResponse.json({

@@ -28,11 +28,13 @@ export function decrypt(text: string): string {
     return decrypted.toString();
 }
 
+import { shareStore } from './store';
+
 /**
  * Payload now includes sensitive data (creds), so we encrypt the whole payload object
  * into a single string field 'data' within the JWT.
  * 
- * Payload structure: { vmid, node, username, password, host }
+ * Payload structure: { vmid, node, username, password, host, shareId }
  */
 export function signShareToken(payload: object, expiresIn: string | number) {
     // Encrypt the sensitive JSON payload
@@ -51,6 +53,12 @@ export function verifyShareToken(token: string) {
         // Decrypt the data field
         const jsonStr = decrypt(decoded.data);
         const creds = JSON.parse(jsonStr);
+
+        // Check if revoked
+        if (creds.shareId && shareStore.isRevoked(creds.shareId)) {
+            console.warn(`Share ${creds.shareId} is revoked`);
+            return null;
+        }
 
         // Return credentials merged with expiration
         return { ...creds, exp: decoded.exp };

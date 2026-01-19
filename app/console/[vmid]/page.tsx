@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
-// @ts-expect-error - novnc-next types are missing
-import RFB from 'novnc-next';
+
+// Dynamic import used inside component to avoid SSR window error
 
 // KeySym constants
 const KEY_ESC = 0xff1b;
@@ -16,6 +16,8 @@ interface RFBInstance {
   disconnect(): void;
   sendCtrlAltDel(): void;
   sendKey(keysym: number, code: string, down: boolean): void;
+  focus?: () => void;
+  sendText?: (text: string) => void;
 }
 
 export default function ConsolePage() {
@@ -28,6 +30,7 @@ export default function ConsolePage() {
   
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFBInstance | null>(null);
+  const proxyInputRef = useRef<HTMLInputElement>(null);
   
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState('');
@@ -37,25 +40,60 @@ export default function ConsolePage() {
   const [altActive, setAltActive] = useState(false);
   const [showToolbar, setShowToolbar] = useState(true);
 
+  // Proxy Input State handling
+  const handleProxyInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      // We initialize input with ' ' (space) or similar to detect backspace
+      // But simple approach: just send what we got and reset.
+      // Backspace detection requires knowing we lost a char.
+      // Better strategy: Keep input empty.
+      // If event is 'Input' with data?
+      
+      // Let's rely on valid input chars first.
+      // For full backspace support on mobile web without messy hacks, we might need a dedicated hidden field with content.
+      // Strategy: Value is always "_". If becomes "", it was backspace. If longer, it's char.
+      
+      // But simpler for now: Just forward typed chars.
+      if (rfbRef.current?.sendText) {
+          rfbRef.current.sendText(val);
+      }
+      e.target.value = ''; 
+  };
+
+  // Dedicated Backspace/Enter handling via onKeyDown (works on some mobile keyboards)
+  const handleProxyKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Backspace') {
+          rfbRef.current?.sendKey(0xff08, 'Backspace', true);
+          rfbRef.current?.sendKey(0xff08, 'Backspace', false);
+      } else if (e.key === 'Enter') {
+          rfbRef.current?.sendKey(0xff0d, 'Enter', true);
+          rfbRef.current?.sendKey(0xff0d, 'Enter', false);
+      }
+  };
+
   useEffect(() => {
     if (!vmid || !node) {
       setError('Missing VMID or Node parameters');
       return;
     }
 
-    const connectVnc = async () => {
+    const connect = async () => {
       try {
         const res = await fetch(`/api/console/${vmid}/ticket?node=${node}&type=${type}`, {
           method: 'POST',
         });
 
         if (!res.ok) {
+           if (res.status === 401) {
+               router.push('/');
+               return;
+           }
            const data = await res.json();
           throw new Error(data.error || 'Failed to get VNC ticket');
         }
 
         const data = await res.json();
-        const { ticket, port } = data;
+        const { ticket, port, user } = data; // Ensure user is returned or available
 
         // Connect to local proxy
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -68,7 +106,122 @@ export default function ConsolePage() {
         console.log('Connecting to (Proxy):', url);
 
         if (screenRef.current) {
-             try {
+             if (type === 'lxc') {
+                // XTERM.JS Logic
+                const { Terminal } = await import('xterm');
+                const { FitAddon } = await import('xterm-addon-fit');
+                // @ts-expect-error - xterm css import might not be typed
+                await import('xterm/css/xterm.css');
+
+                const term = new Terminal({
+                    cursorBlink: true,
+                    fontSize: 14,
+                    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                    theme: {
+                        background: '#000000',
+                        foreground: '#ffffff',
+                    }
+                });
+                
+                const fitAddon = new FitAddon();
+                term.loadAddon(fitAddon);
+
+                // Clear previous content
+                screenRef.current.innerHTML = '';
+                term.open(screenRef.current);
+                fitAddon.fit();
+
+                const socket = new WebSocket(url);
+                socket.binaryType = 'arraybuffer'; // Or 'blob', but we effectively use text/binary frames logic
+
+                socket.onopen = () => {
+                    setStatus('connected');
+                    // 1. Auth: username:ticket
+                    // Note: 'user' comes from ticket response? 
+                    // API currently returns ...vncData.data. user is inside data?
+                    // Let's check api/console/[vmid]/ticket/route.ts. 
+                    // getVncProxy returns { ticket, port, upi, cert, user }.
+                    // So data.user should be available.
+                    
+                    const authUser = user || 'root@pam'; // Fallback if missing, but should be there
+                    const authStr = `${authUser}:${ticket}\n`;
+                    socket.send(authStr);
+                    
+                    // 2. Resize to initial fit
+                    fitAddon.fit();
+                    term.focus(); 
+                    
+                    const cols = term.cols;
+                    const rows = term.rows;
+                    // Protocol: "1:cols:rows:"
+                    const resizeStr = `1:${cols}:${rows}:`;
+                    socket.send(resizeStr);
+
+                    // 3. Force Repaint/Prompt by sending Ctrl+L (Clear Screen) to avoid double prompt
+                    setTimeout(() => {
+                        if (socket.readyState === WebSocket.OPEN) {
+                             socket.send("0:1:\u000C");
+                        }
+                    }, 500);
+                };
+
+                socket.onmessage = (event) => {
+                    if (event.data instanceof ArrayBuffer) {
+                         const u8 = new Uint8Array(event.data);
+                         term.write(u8);
+                    } else {
+                         term.write(event.data);
+                    }
+                };
+
+                socket.onclose = () => setStatus('disconnected');
+                socket.onerror = () => {
+                    setError('WebSocket Error');
+                    setStatus('error');
+                };
+
+                term.onData((inputData) => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        // Protocol: "0:length:data"
+                        const msg = `0:${inputData.length}:${inputData}`;
+                        socket.send(msg);
+                    }
+                });
+                
+                // Handle Resize Protocol
+                const handleResize = () => {
+                    fitAddon.fit();
+                    if (socket.readyState === WebSocket.OPEN) {
+                        const cols = term.cols;
+                        const rows = term.rows;
+                        socket.send(`1:${cols}:${rows}:`);
+                    }
+                };
+                window.addEventListener('resize', handleResize);
+                
+                rfbRef.current = {
+                    disconnect: () => {
+                        window.removeEventListener('resize', handleResize);
+                        socket.close();
+                        term.dispose();
+                    },
+                    // Adapter for existing interface
+                    sendCtrlAltDel: () => console.warn("Ctrl-Alt-Del not supported in Xterm"),
+                    sendKey: () => {},
+                    focus: () => term.focus(),
+                    sendText: (text: string) => {
+                         if (socket.readyState === WebSocket.OPEN) {
+                            const msg = `0:${text.length}:${text}`;
+                            socket.send(msg);
+                         }
+                    }
+                } as any; // Cast to avoid strict interface mismatch if needed
+
+             } else {
+                 // NOVNC Logic
+                 // @ts-expect-error - novnc-next types are missing
+                 const { default: RFB } = await import('novnc-next');
+                 
                 const rfb = new RFB(
                     screenRef.current,
                     url,{
@@ -76,8 +229,8 @@ export default function ConsolePage() {
                     }
                 );
 
-                rfb.scaleViewport = true; // Scale to fit
-                rfb.background = "#000000"; // Set background to black
+                rfb.scaleViewport = true; 
+                rfb.background = "#000000"; 
 
                 rfb.addEventListener("connect",  () => {
                     setStatus('connected');
@@ -92,22 +245,35 @@ export default function ConsolePage() {
                 });
                  
                 rfbRef.current = rfb;
-             } catch (e: unknown) {
-                 const message = e instanceof Error ? e.message : 'Unknown RFB Init Error';
-                 console.error('RFB Init Error', e);
-                 setError(message);
+                // Add extended methods to the instance if possible or wrapping it?
+                // rfb instance is standard. We can monkey-patch or use a wrapper.
+                // Let's monkey patch safely.
+                (rfbRef.current as any).sendText = (text: string) => {
+                    for (let i = 0; i < text.length; i++) {
+                         const charCode = text.charCodeAt(i);
+                         rfb.sendKey(charCode, '', true);
+                         rfb.sendKey(charCode, '', false);
+                    }
+                };
              }
         }
 
       } catch (err: unknown) {
         console.error(err);
         const message = err instanceof Error ? err.message : 'Unknown error';
+        
+        // Handle 401 from fetch
+        if (message.includes('401') || message.includes('Unauthorized')) {
+             router.push('/');
+             return;
+        }
+
         setError(message);
         setStatus('error');
       }
     };
 
-    connectVnc();
+    connect();
 
     return () => {
       if (rfbRef.current) {
@@ -124,21 +290,46 @@ export default function ConsolePage() {
     setShowToolbar(prev => !prev);
   };
 
+  const activateKeyboard = () => {
+      console.log("[Keyboard] Manual Activation Triggered");
+      
+      // 1. Focus the Proxy Input (Primary Strategy for Mobile/Tablet)
+      if (proxyInputRef.current) {
+          proxyInputRef.current.focus();
+          proxyInputRef.current.click(); // Help trigger VK on some devices
+      }
+
+      // 2. Also try legacy focus methods just in case
+      if (rfbRef.current && typeof rfbRef.current.focus === 'function') {
+           rfbRef.current.focus();
+      }
+  };
+
   // Handle browser back or manual navigation
   const handleBack = () => {
     router.push('/dashboard');
   };
-  
+
+  // Trigger resize when toolbar visibility changes to fill the gap
+  useEffect(() => {
+      const timer = setTimeout(() => {
+          window.dispatchEvent(new Event('resize'));
+      }, 350); // Wait for CSS transition (300ms)
+      return () => clearTimeout(timer);
+  }, [showToolbar]);
+    
   // Send Ctrl+Alt+Del
   const sendCtrlAltDel = () => {
       if(rfbRef.current) {
-          rfbRef.current.sendCtrlAltDel();
+          if (typeof rfbRef.current.sendCtrlAltDel === 'function') {
+               rfbRef.current.sendCtrlAltDel();
+          }
       }
   }
 
   // Helper to send keys
   const sendKey = (keysym: number) => {
-      if(!rfbRef.current) return;
+      if(!rfbRef.current || typeof rfbRef.current.sendKey !== 'function') return;
       rfbRef.current.sendKey(keysym, '', true); // Down
       setTimeout(() => {
           if(rfbRef.current) rfbRef.current.sendKey(keysym, '', false); // Up
@@ -146,7 +337,7 @@ export default function ConsolePage() {
   };
 
   const toggleModifier = (keysym: number, active: boolean, setActive: (v: boolean) => void) => {
-      if(!rfbRef.current) return;
+      if(!rfbRef.current || typeof rfbRef.current.sendKey !== 'function') return;
       const newState = !active;
       setActive(newState);
       rfbRef.current.sendKey(keysym, '', newState);
@@ -178,61 +369,68 @@ export default function ConsolePage() {
         </button>
       </div>
 
-      <div className={`absolute top-0 left-0 right-0 z-50 bg-gray-800/95 backdrop-blur-sm px-2 flex justify-between items-center border-b border-gray-700 transition-transform duration-300 ease-in-out h-12 ${showToolbar ? 'translate-y-0' : '-translate-y-full'}`}>
-        <div className="flex items-center space-x-4">
+      <div className={`absolute top-0 left-0 right-0 z-50 bg-gray-800/95 backdrop-blur-sm px-2 flex justify-between items-center border-b border-gray-700 transition-transform duration-300 ease-in-out h-12 ${showToolbar ? 'translate-y-0' : '-translate-y-full'} overflow-x-auto overflow-y-hidden no-scrollbar`}>
+        <div className="flex items-center space-x-4 shrink-0">
             <button 
                 onClick={handleBack}
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm shrink-0"
             >
                 &larr; Back
             </button>
-            <h1 className="font-bold text-white hidden md:block">Console: VM {vmid}</h1>
-            <span className={`text-xs px-2 py-0.5 rounded ${status === 'connected' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
+            <h1 className="font-bold text-white hidden lg:block whitespace-nowrap">Console: VM {vmid}</h1>
+            <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${status === 'connected' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
                 {status}
             </span>
         </div>
 
-         {/* Extended Controls */}
-         <div className="flex items-center space-x-2">
+         {/* Extended Controls - Scrollable area */}
+         <div className="flex items-center space-x-2 ml-4 shrink-0">
+             <button
+                 onClick={activateKeyboard}
+                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
+                 title="Show Keyboard"
+             >
+                 ⌨️
+             </button>
              <button 
                 onClick={() => toggleModifier(KEY_CTRL, ctrlActive, setCtrlActive)}
-                className={`px-3 py-1 rounded text-sm font-bold border ${ctrlActive ? 'bg-red-600 border-red-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
+                className={`px-3 py-1 rounded text-sm font-bold border shrink-0 ${ctrlActive ? 'bg-red-600 border-red-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
              >
                 Ctrl
              </button>
              <button 
                 onClick={() => toggleModifier(KEY_ALT, altActive, setAltActive)}
-                className={`px-3 py-1 rounded text-sm font-bold border ${altActive ? 'bg-red-600 border-red-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
+                className={`px-3 py-1 rounded text-sm font-bold border shrink-0 ${altActive ? 'bg-red-600 border-red-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
              >
                 Alt
              </button>
              <button 
                 onClick={() => sendKey(KEY_WIN)} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Windows Key"
              >
                 Win
              </button>
              <button 
                 onClick={() => sendKey(KEY_TAB)} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Tab"
              >
                 Tab
              </button>
              <button 
                 onClick={() => sendKey(KEY_ESC)} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Escape"
              >
                 Esc
              </button>
-            <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap">
+            <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
                 Ctrl-Alt-Del
             </button>
             <button 
                 onClick={toggleFullScreen} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Toggle Full Screen"
             >
                 ⛶
@@ -278,6 +476,19 @@ export default function ConsolePage() {
           )}
         <div ref={screenRef} className="w-full h-full" />
       </div>
+      {/* 4. Proxy Input for Mobile Keyboard Support */}
+      <input 
+          ref={proxyInputRef}
+          type="text"
+          className="absolute opacity-0 h-1 w-1 top-0 left-0 pointer-events-none z-0" 
+          autoCorrect="off" 
+          autoCapitalize="off" 
+          spellCheck="false" 
+          autoComplete="off"
+          onChange={handleProxyInput}
+          onKeyDown={handleProxyKeyDown}
+      />
+
     </div>
   );
 }

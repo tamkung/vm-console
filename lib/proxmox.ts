@@ -171,6 +171,19 @@ export class ProxmoxClient {
         });
     }
 
+    async getTermProxy(node: string, vmid: number, ticket: string, csrfToken: string): Promise<VncProxyResponse> {
+        const params = new URLSearchParams();
+
+        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/lxc/${vmid}/termproxy`, {
+            method: 'POST',
+            body: params,
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+                CSRFPreventionToken: csrfToken
+            },
+        });
+    }
+
     async vmStatus(node: string, vmid: number, action: 'start' | 'stop' | 'reset' | 'shutdown' | 'suspend' | 'resume' | 'reboot', ticket: string, csrfToken: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<string> {
         const params = new URLSearchParams();
 
