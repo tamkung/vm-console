@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { signShareToken, decrypt } from '@/lib/auth';
+import { shareStore } from '@/lib/store';
+import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
     try {
@@ -34,9 +36,32 @@ export async function POST(request: NextRequest) {
         // If host passed is null/empty, use process.env.PROXMOX_URL
         const targetHost = host || process.env.PROXMOX_URL || '';
 
-        // Generate Token with Encrypted Credentials
+        // Generate Share ID and Expiration
+        const shareId = crypto.randomUUID();
+        const expiresInMinutes = parseInt(duration);
+        const expiresAt = Date.now() + (expiresInMinutes * 60 * 1000);
+
+        // Generate Token with Encrypted Credentials and Share ID
         // duration comes in minutes
-        const token = signShareToken({ vmid, node, username, password, host: targetHost, type: type as 'qemu' | 'lxc' }, `${duration}m`);
+        const token = signShareToken({
+            vmid,
+            node,
+            username,
+            password,
+            host: targetHost,
+            type: type as 'qemu' | 'lxc',
+            shareId
+        }, `${duration}m`);
+
+        // Persist share
+        shareStore.add({
+            id: shareId,
+            vmid,
+            node,
+            createdAt: Date.now(),
+            expiresAt,
+            revoked: false
+        });
 
         // Return full share URL
         // We need the origin to construct the full link 

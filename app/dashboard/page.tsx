@@ -13,33 +13,36 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [shareVm, setShareVm] = useState<{vmid: number, node: string, type: 'qemu' | 'lxc'} | null>(null);
+  const [openMenuVmId, setOpenMenuVmId] = useState<number | null>(null);
+
+  const fetchResources = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/vms');
+      if (res.status === 401) {
+        router.push('/');
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Failed to fetch resources');
+      }
+      const data = await res.json();
+      setResources(data.vms);
+      setError('');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+          setError(err.message);
+      } else {
+          setError('Failed to fetch resources');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchResources = async () => {
-      try {
-        const res = await fetch('/api/vms');
-        if (res.status === 401) {
-          router.push('/');
-          return;
-        }
-        if (!res.ok) {
-          throw new Error('Failed to fetch resources');
-        }
-        const data = await res.json();
-        setResources(data.vms);
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-            setError(err.message);
-        } else {
-            setError('Failed to fetch resources');
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchResources();
-  }, [router]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleResourceClick = (vmid: number, node: string, type: 'qemu' | 'lxc' = 'qemu') => {
     router.push(`/console/${vmid}?node=${node}&type=${type}`);
@@ -99,7 +102,7 @@ export default function DashboardPage() {
         });
 
         // Refresh list
-        window.location.reload();
+        fetchResources();
     } catch (err: any) {
         Swal.fire({
             title: 'Error!',
@@ -126,15 +129,26 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-blue-400">Proxmox Console</h1>
-          <button 
-            onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' });
-                router.push('/');
-            }}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm"
-          >
-            Logout
-          </button>
+          <div className="flex space-x-3">
+              <button 
+                onClick={fetchResources}
+                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
+              <button 
+                onClick={async () => {
+                    await fetch('/api/auth/logout', { method: 'POST' });
+                    router.push('/');
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm"
+              >
+                Logout
+              </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -210,8 +224,8 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Footer with Actions */}
-                <div className="bg-gray-700/50 px-4 py-3 border-t border-gray-700 flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
+                <div className="bg-gray-700/50 px-4 py-3 border-t border-gray-700 flex flex-row flex-wrap justify-between items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                          {/* Action Buttons */}
                         {isRunning ? (
                             <>
@@ -240,7 +254,7 @@ export default function DashboardPage() {
                         ) : (
                             <button 
                                 onClick={(e) => handleAction(e, res.vmid, res.node, 'start', type)}
-                                className="cursor-pointer text-green-500 hover:text-green-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-green-900/30 border border-green-700/50"
+                                className="cursor-pointer text-green-500 hover:text-green-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-green-900/30 border border-green-700/50 w-full md:w-auto"
                                 title="Start"
                             >
                                 Start
@@ -249,23 +263,59 @@ export default function DashboardPage() {
                     </div>
                     
                     {isRunning && (
-                         <div className="flex space-x-3 items-center">
-                             <span 
-                                className="text-gray-500 text-xs cursor-pointer hover:text-blue-400 font-semibold" 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShareVm({vmid: res.vmid, node: res.node, type});
-                                }} 
-                             >
-                                Share 🔗
-                             </span>
-                             <span 
-                                className="text-gray-500 text-xs cursor-pointer hover:text-white" 
-                                onClick={() => handleResourceClick(res.vmid, res.node, type)} 
-                             >
-                                Console &rarr;
-                             </span>
-                        </div>
+                        <>
+                            {/* Actions Menu (Dropdown) - Visible on all screens to prevent overflow */}
+                            <div className="flex relative justify-end">
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuVmId(openMenuVmId === res.vmid ? null : res.vmid);
+                                    }}
+                                    className="text-gray-400 hover:text-white rounded hover:bg-gray-600 focus:outline-none"
+                                    title="More Options"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                    </svg>
+                                </button>
+
+                                {openMenuVmId === res.vmid && (
+                                    <div className="absolute right-0 bottom-full mb-2 w-32 bg-gray-800 border border-gray-600 rounded shadow-xl z-20 flex flex-col overflow-hidden">
+                                        <button
+                                            className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white border-b border-gray-700"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuVmId(null);
+                                                setShareVm({vmid: res.vmid, node: res.node, type});
+                                            }}
+                                        >
+                                            Share 🔗
+                                        </button>
+                                        <button
+                                            className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuVmId(null);
+                                                handleResourceClick(res.vmid, res.node, type);
+                                            }}
+                                        >
+                                            Console &rarr;
+                                        </button>
+                                    </div>
+                                )}
+                                
+                                {/* Overlay to close menu when clicking outside */}
+                                {openMenuVmId === res.vmid && (
+                                    <div 
+                                        className="fixed inset-0 z-10" 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenMenuVmId(null);
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        </>
                     )}
                 </div>
               </div>
