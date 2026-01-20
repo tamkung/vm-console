@@ -53,7 +53,7 @@ export async function POST(
         return NextResponse.json({
             ...vncData.data,
             node, // Pass back node
-            baseUrl: url, // Pass back configured URL
+            //baseUrl: url, // Pass back configured URL
         });
 
     } catch (error: unknown) {
