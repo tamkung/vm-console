@@ -334,14 +334,10 @@ function SharePageContent() {
   
   const activateKeyboard = () => {
       console.log("[Keyboard] Manual Activation Triggered");
-      // 1. Focus Proxy Input
+      // Focus Proxy Input
       if (proxyInputRef.current) {
-          proxyInputRef.current.focus();
+          proxyInputRef.current.focus({ preventScroll: true });
           proxyInputRef.current.click();
-      }
-      // 2. Fallback to RFB Focus
-      if (rfbRef.current && typeof rfbRef.current.focus === 'function') {
-           rfbRef.current.focus();
       }
   };
 
@@ -490,7 +486,8 @@ function SharePageContent() {
       <input 
           ref={proxyInputRef}
           type="text"
-          className="absolute opacity-0 h-1 w-1 top-0 left-0 pointer-events-none z-0" 
+          inputMode="text"
+          className="fixed top-12 left-0 w-8 h-8 opacity-0 z-0 pointer-events-auto" 
           autoCorrect="off" 
           autoCapitalize="off" 
           spellCheck="false" 

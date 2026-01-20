@@ -293,15 +293,10 @@ export default function ConsolePage() {
   const activateKeyboard = () => {
       console.log("[Keyboard] Manual Activation Triggered");
       
-      // 1. Focus the Proxy Input (Primary Strategy for Mobile/Tablet)
+      // Focus the Proxy Input (Primary Strategy for Mobile/Tablet)
       if (proxyInputRef.current) {
-          proxyInputRef.current.focus();
+          proxyInputRef.current.focus({ preventScroll: true });
           proxyInputRef.current.click(); // Help trigger VK on some devices
-      }
-
-      // 2. Also try legacy focus methods just in case
-      if (rfbRef.current && typeof rfbRef.current.focus === 'function') {
-           rfbRef.current.focus();
       }
   };
 
@@ -480,7 +475,8 @@ export default function ConsolePage() {
       <input 
           ref={proxyInputRef}
           type="text"
-          className="absolute opacity-0 h-1 w-1 top-0 left-0 pointer-events-none z-0" 
+          inputMode="text"
+          className="fixed top-12 left-0 w-8 h-8 opacity-0 z-0 pointer-events-auto" 
           autoCorrect="off" 
           autoCapitalize="off" 
           spellCheck="false" 
