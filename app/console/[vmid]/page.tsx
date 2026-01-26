@@ -430,6 +430,30 @@ export default function ConsolePage() {
             >
                 ⛶
             </button>
+             <button 
+                onClick={async () => {
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (!text) return;
+                        
+                        if (rfbRef.current?.sendText) {
+                             rfbRef.current.sendText(text);
+                             // If mobile keyboard input is active, might want to focus it back?
+                             if(proxyInputRef.current) proxyInputRef.current.focus();
+                        } else {
+                            // Fallback for NoVNC if sendText isn't monkey-patched (should be though)
+                             console.warn("sendText not available on rfb instance");
+                        }
+                    } catch (err) {
+                        console.error('Failed to read clipboard:', err);
+                        alert("Failed to read clipboard. Please check permissions.");
+                    }
+                }} 
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
+                title="Paste from Clipboard"
+            >
+                📋 Paste
+            </button>
         </div>
       </div>
       
