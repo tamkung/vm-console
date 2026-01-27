@@ -18,6 +18,7 @@ function SharePageContent() {
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
+  const intervalsRef = useRef<NodeJS.Timeout[]>([]);
   
   const [status, setStatus] = useState('connecting'); // connecting, connected, disconnected, error
   const [error, setError] = useState('');
@@ -136,14 +137,39 @@ function SharePageContent() {
                      // Already expired logic handled inside updateTimer -> handleExpiration
                  } else {
                      // Update UI every second
+
                      const timerInterval = setInterval(() => {
                          if (!updateTimer()) {
                              clearInterval(timerInterval);
                          }
                      }, 1000);
-                     // Note: Interval cleanup handled by page close/unmount implicitly
+                     intervalsRef.current.push(timerInterval);
+
+                     // Poll for Revocation Status every 5 seconds
+                     const statusInterval = setInterval(async () => {
+                         try {
+                              const res = await fetch('/api/share/status', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ token })
+                              });
+                              const data = await res.json();
+                              if (!data.valid) {
+                                  console.warn("Share revoked or invalid");
+                                  clearInterval(statusInterval);
+                                  clearInterval(timerInterval); // Stop timer too
+                                  handleExpiration(); // Reuse expiration logic to kill connection
+                              }
+                         } catch (err) {
+                             console.error("Failed to check status", err);
+                         }
+                     }, 5000);
+                     intervalsRef.current.push(statusInterval);
+
+                     
+                     // Cleanup handled by useEffect return via intervalsRef
                  }
-            }
+                 }
 
 
             // 2. Connect to Secure Proxy
@@ -318,6 +344,8 @@ function SharePageContent() {
         if (rfbRef.current) {
             try { rfbRef.current.disconnect(); } catch (_) {}
         }
+        intervalsRef.current.forEach(clearInterval);
+        intervalsRef.current = [];
     };
   }, [token]);
 
@@ -457,6 +485,28 @@ function SharePageContent() {
                 title="Toggle Full Screen"
             >
                 ⛶
+            </button>
+             <button 
+                onClick={async () => {
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (!text) return;
+                        
+                        if (rfbRef.current?.sendText) {
+                             rfbRef.current.sendText(text);
+                             if(proxyInputRef.current) proxyInputRef.current.focus();
+                        } else {
+                             console.warn("sendText not available on rfb instance");
+                        }
+                    } catch (err) {
+                        console.error('Failed to read clipboard:', err);
+                        alert("Failed to read clipboard. Please check permissions.");
+                    }
+                }} 
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
+                title="Paste from Clipboard"
+            >
+                📋 Paste
             </button>
         </div>
       </div>

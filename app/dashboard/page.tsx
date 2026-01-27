@@ -6,6 +6,21 @@ import { ProxmoxVm, ProxmoxLxc } from '@/lib/proxmox';
 import ShareModal from './components/ShareModal';
 import Swal from 'sweetalert2';
 
+const formatUptime = (seconds: number) => {
+  const days = Math.floor(seconds / (3600 * 24));
+  const hours = Math.floor((seconds % (3600 * 24)) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const timeStr = `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+
+  if (days > 0) {
+    return `${days} days ${timeStr}`;
+  }
+  return timeStr;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [resources, setResources] = useState<(ProxmoxVm | ProxmoxLxc)[]>([]);
@@ -216,7 +231,7 @@ export default function DashboardPage() {
                       <span>Uptime:</span>
                       <span className="text-gray-200">
                         {res.status === 'running' 
-                          ? new Date(res.uptime * 1000).toISOString().substr(11, 8) 
+                          ? formatUptime(res.uptime) 
                           : '00:00:00'}
                       </span>
                     </div>

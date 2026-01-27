@@ -6,7 +6,16 @@ import { encrypt } from '@/lib/auth';
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { username, password, realm, customHost } = body;
+        let { username, password, realm, customHost } = body;
+
+        // Decode obfuscated password
+        if (password) {
+            try {
+                password = Buffer.from(password, 'base64').toString('utf-8');
+            } catch (e) {
+                // Keep original if decoding fails (backward compatibility/edge case)
+            }
+        }
 
         if (!username || !password) {
             return NextResponse.json(
