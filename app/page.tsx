@@ -19,7 +19,9 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const payload: any = { username, password, realm };
+      // Obfuscate password to avoid plain text in network logs
+      const encodedPassword = btoa(unescape(encodeURIComponent(password)));
+      const payload: any = { username, password: encodedPassword, realm };
       if (useCustomHost) {
           if (!customHost) throw new Error("Custom Host URL is required");
           payload.customHost = customHost;
