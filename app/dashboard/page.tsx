@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProxmoxVm, ProxmoxLxc } from '@/lib/proxmox';
 import ShareModal from './components/ShareModal';
+import GuacamoleModal from './components/GuacamoleModal';
 import Swal from 'sweetalert2';
+
 
 const formatUptime = (seconds: number) => {
   const days = Math.floor(seconds / (3600 * 24));
@@ -29,6 +31,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [shareVm, setShareVm] = useState<{vmid: number, node: string, type: 'qemu' | 'lxc'} | null>(null);
   const [openMenuVmId, setOpenMenuVmId] = useState<number | null>(null);
+  const [showGuacModal, setShowGuacModal] = useState(false);
 
   const fetchResources = async () => {
     setLoading(true);
@@ -145,6 +148,15 @@ export default function DashboardPage() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-blue-400">Proxmox Console</h1>
           <div className="flex space-x-3">
+              <button 
+                onClick={() => setShowGuacModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Console
+              </button>
               <button 
                 onClick={fetchResources}
                 className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
@@ -346,6 +358,10 @@ export default function DashboardPage() {
             type={shareVm.type}
             onClose={() => setShareVm(null)} 
         />
+      )}
+
+      {showGuacModal && (
+        <GuacamoleModal onClose={() => setShowGuacModal(false)} />
       )}
     </div>
   );
