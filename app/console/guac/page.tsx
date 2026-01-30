@@ -15,6 +15,8 @@ function GuacConsoleContent() {
     const [showToolbar, setShowToolbar] = useState(false);
     const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+
     useEffect(() => {
         if (!sessionId) {
             setError('No session ID provided');
@@ -45,6 +47,27 @@ function GuacConsoleContent() {
         
         fetchUrl();
     }, [sessionId]);
+
+    // Function to ensure iframe has focus for keyboard events
+    const focusIframe = () => {
+        if (iframeRef.current) {
+            iframeRef.current.focus();
+            
+            // Also try to send a click message or just ensure content window has focus
+            if (iframeRef.current.contentWindow) {
+                iframeRef.current.contentWindow.focus();
+            }
+        }
+    };
+
+    // Auto-focus when iframe loads or src changes
+    useEffect(() => {
+        if (iframeSrc) {
+            // Small delay to allow iframe to render
+            const timer = setTimeout(focusIframe, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [iframeSrc]);
 
     const handleMouseEnter = () => {
         // Clear any existing timeout
@@ -85,7 +108,10 @@ function GuacConsoleContent() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-900 flex flex-col">
+        <div 
+            className="min-h-screen bg-gray-900 flex flex-col"
+            onClick={focusIframe} // Clicking anywhere outside toolbar should focus iframe
+        >
             {/* Thin hover trigger zone at very top edge - only 4px */}
             <div 
                 className="fixed top-0 left-0 right-0 h-1 z-50"
@@ -108,7 +134,10 @@ function GuacConsoleContent() {
                 <div className="bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 px-4 py-2 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <button 
-                            onClick={handleBack}
+                            onClick={(e) => {
+                                e.stopPropagation(); // Prevent focusing iframe instantly so button works
+                                handleBack();
+                            }}
                             className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -120,10 +149,13 @@ function GuacConsoleContent() {
                     </div>
                     <div className="flex items-center gap-2">
                         <button 
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.stopPropagation();
                                 const iframe = document.getElementById('guac-frame') as HTMLIFrameElement;
                                 if (iframe?.requestFullscreen) {
                                     iframe.requestFullscreen();
+                                    // Focus again after fullscreen change
+                                    setTimeout(focusIframe, 100);
                                 }
                             }}
                             className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm"
@@ -143,12 +175,16 @@ function GuacConsoleContent() {
                 )}
                 {iframeSrc && (
                     <iframe
+                        ref={iframeRef}
                         id="guac-frame"
                         src={iframeSrc}
                         className="w-full h-full border-0"
                         style={{ minHeight: '100vh' }}
-                        allow="clipboard-read; clipboard-write"
-                        onLoad={() => setLoading(false)}
+                        allow="clipboard-read; clipboard-write; fullscreen"
+                        onLoad={() => {
+                            setLoading(false);
+                            focusIframe();
+                        }}
                     />
                 )}
             </div>
