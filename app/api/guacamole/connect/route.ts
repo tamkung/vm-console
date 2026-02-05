@@ -98,6 +98,13 @@ export async function POST(request: NextRequest) {
             connectionParams['ignore-cert'] = 'true';
             connectionParams['security'] = 'any';
 
+            // Keyboard layout - use US English server-side for consistent shortcuts
+            // This ensures Ctrl+A/C/V work even when client keyboard is Thai/other language
+            connectionParams['server-layout'] = 'en-us-qwerty';
+
+            // Normalize keyboard input - converts Unicode to scancodes for proper shortcut handling
+            connectionParams['normalize-keyboard'] = 'true';
+
             // Dynamic resolution (like Windows Admin Center)
             connectionParams['resize-method'] = 'display-update';
 
