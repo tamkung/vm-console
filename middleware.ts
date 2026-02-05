@@ -4,8 +4,9 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
 
-    // Define protected routes
-    const isProtectedRoute = path.startsWith('/dashboard') || path.startsWith('/console');
+    // Define protected routes (exclude /console/guac which uses Guacamole auth, not Proxmox)
+    const isProtectedRoute = (path.startsWith('/dashboard') || path.startsWith('/console'))
+        && !path.startsWith('/console/guac');
 
     // Check for auth cookie
     const authCookie = request.cookies.get('PVEAuthCookie')?.value;
