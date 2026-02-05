@@ -196,4 +196,64 @@ export class ProxmoxClient {
             },
         });
     }
+
+    async getVmNetworkInfo(node: string, vmid: number, ticket: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<string[]> {
+        const ips: string[] = [];
+
+        try {
+            if (type === 'qemu') {
+                // Use QEMU guest agent to get network info
+                const res = await this.fetch<{ data: { result: Array<{ name: string; 'ip-addresses'?: Array<{ 'ip-address': string; 'ip-address-type': string }> }> } }>(
+                    `/api2/json/nodes/${node}/qemu/${vmid}/agent/network-get-interfaces`,
+                    {
+                        headers: {
+                            Cookie: `PVEAuthCookie=${ticket}`,
+                        },
+                    }
+                );
+
+                if (res.data?.result) {
+                    for (const iface of res.data.result) {
+                        // Skip loopback interface
+                        if (iface.name === 'lo' || iface.name === 'Loopback Pseudo-Interface 1') continue;
+
+                        if (iface['ip-addresses']) {
+                            for (const addr of iface['ip-addresses']) {
+                                // Only get IPv4 addresses
+                                if (addr['ip-address-type'] === 'ipv4' && !addr['ip-address'].startsWith('127.')) {
+                                    ips.push(addr['ip-address']);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // For LXC, get config and parse net interfaces
+                const res = await this.fetch<{ data: Record<string, string> }>(
+                    `/api2/json/nodes/${node}/lxc/${vmid}/config`,
+                    {
+                        headers: {
+                            Cookie: `PVEAuthCookie=${ticket}`,
+                        },
+                    }
+                );
+
+                // Parse net0, net1, etc. for IP addresses
+                for (const [key, value] of Object.entries(res.data)) {
+                    if (key.startsWith('net') && typeof value === 'string') {
+                        // Format: name=eth0,bridge=vmbr0,ip=192.168.1.100/24,...
+                        const ipMatch = value.match(/ip=([^/,]+)/);
+                        if (ipMatch && ipMatch[1] && ipMatch[1] !== 'dhcp') {
+                            ips.push(ipMatch[1]);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            // Guest agent not running or other error - return empty
+            console.error('Failed to get VM network info:', error);
+        }
+
+        return ips;
+    }
 }

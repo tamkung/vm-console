@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProxmoxVm, ProxmoxLxc } from '@/lib/proxmox';
 import ShareModal from './components/ShareModal';
-import GuacamoleModal from './components/GuacamoleModal';
+import GuacamoleModal from '../components/GuacamoleModal';
 import Swal from 'sweetalert2';
 
 
@@ -32,6 +32,18 @@ export default function DashboardPage() {
   const [shareVm, setShareVm] = useState<{vmid: number, node: string, type: 'qemu' | 'lxc'} | null>(null);
   const [openMenuVmId, setOpenMenuVmId] = useState<number | null>(null);
   const [showGuacModal, setShowGuacModal] = useState(false);
+  const [username, setUsername] = useState<string>('');
+
+  // Get username from cookie on mount
+  useEffect(() => {
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return decodeURIComponent(parts.pop()?.split(';').shift() || '');
+      return '';
+    };
+    setUsername(getCookie('PVE_USER'));
+  }, []);
 
   const fetchResources = async () => {
     setLoading(true);
@@ -146,7 +158,17 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-blue-400">Proxmox Console</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-3xl font-bold text-blue-400">Proxmox Console</h1>
+            {username && (
+              <span className="text-sm text-gray-400 flex items-center gap-1 bg-gray-800 px-3 py-1 rounded-full border border-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                {username}
+              </span>
+            )}
+          </div>
           <div className="flex space-x-3">
               <button 
                 onClick={() => setShowGuacModal(true)}
@@ -361,7 +383,16 @@ export default function DashboardPage() {
       )}
 
       {showGuacModal && (
-        <GuacamoleModal onClose={() => setShowGuacModal(false)} />
+        <GuacamoleModal 
+          onClose={() => setShowGuacModal(false)}
+          vms={resources.map(r => ({
+            vmid: r.vmid,
+            name: r.name,
+            status: r.status,
+            node: r.node,
+            type: (r.type || 'qemu') as 'qemu' | 'lxc'
+          }))}
+        />
       )}
     </div>
   );

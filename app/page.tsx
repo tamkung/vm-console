@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import GuacamoleModal from './components/GuacamoleModal';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [customHost, setCustomHost] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showGuacModal, setShowGuacModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +23,7 @@ export default function LoginPage() {
     try {
       // Obfuscate password to avoid plain text in network logs
       const encodedPassword = btoa(unescape(encodeURIComponent(password)));
-      const payload: any = { username, password: encodedPassword, realm };
+      const payload: Record<string, string> = { username, password: encodedPassword, realm };
       if (useCustomHost) {
           if (!customHost) throw new Error("Custom Host URL is required");
           payload.customHost = customHost;
@@ -140,7 +142,33 @@ export default function LoginPage() {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
+
+        {/* Divider */}
+        <div className="my-6 flex items-center">
+          <div className="flex-1 border-t border-gray-600"></div>
+          <span className="px-4 text-gray-500 text-sm">or</span>
+          <div className="flex-1 border-t border-gray-600"></div>
+        </div>
+
+        {/* Guacamole Remote Console Button */}
+        <button
+          onClick={() => setShowGuacModal(true)}
+          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded transition flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          Guacamole Remote Console
+        </button>
+        <p className="text-center text-gray-500 text-xs mt-2">
+          Connect directly to any machine via RDP, VNC, or SSH
+        </p>
       </div>
+
+      {/* Guacamole Modal */}
+      {showGuacModal && (
+        <GuacamoleModal onClose={() => setShowGuacModal(false)} />
+      )}
     </div>
   );
 }
