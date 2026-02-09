@@ -28,6 +28,7 @@ function SharePageContent() {
   const [showToolbar, setShowToolbar] = useState(true);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
+  const [localCursor, setLocalCursor] = useState(true); // Local cursor on/off toggle
 
   // Timer State
   const [timeLeftFormatted, setTimeLeftFormatted] = useState<string>('');
@@ -313,9 +314,17 @@ function SharePageContent() {
                     );
 
                     rfb.scaleViewport = true;
+                    rfb.showDotCursor = true; // Always show dot cursor for local cursor visibility
                     rfb.background = "#000000";
 
-                    rfb.addEventListener("connect",  () => setStatus('connected'));
+                    rfb.addEventListener("connect",  () => {
+                        setStatus('connected');
+                        // Force default cursor on the noVNC canvas for better visibility
+                        const canvas = screenRef.current?.querySelector('canvas');
+                        if (canvas) {
+                            canvas.style.cursor = 'default';
+                        }
+                    });
                     rfb.addEventListener("disconnect", () => setStatus('disconnected'));
                     rfb.addEventListener("securityfailure", () => setError('Security failure'));
 
@@ -479,6 +488,20 @@ function SharePageContent() {
             <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
                 Ctrl-Alt-Del
             </button>
+             <button 
+                onClick={() => {
+                    const canvas = screenRef.current?.querySelector('canvas') as HTMLCanvasElement;
+                    if (canvas) {
+                        const newState = !localCursor;
+                        canvas.style.cursor = newState ? 'default' : 'none';
+                        setLocalCursor(newState);
+                    }
+                }} 
+                className={`px-3 py-1 rounded text-sm font-bold border shrink-0 ${localCursor ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
+                title="Toggle Local Cursor"
+             >
+                🖱️ Cursor
+             </button>
             <button 
                 onClick={toggleFullScreen} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"

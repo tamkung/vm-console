@@ -12,10 +12,10 @@ function GuacConsoleContent() {
     const [iframeSrc, setIframeSrc] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
-    const [showToolbar, setShowToolbar] = useState(false);
-    const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
+    const [showToolbar, setShowToolbar] = useState(true); // Toggle-based, default visible
 
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const proxyInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (!sessionId) {
@@ -69,28 +69,20 @@ function GuacConsoleContent() {
         }
     }, [iframeSrc]);
 
-    const handleMouseEnter = () => {
-        // Clear any existing timeout
-        if (hoverTimeout.current) {
-            clearTimeout(hoverTimeout.current);
-        }
-        // Show toolbar after 1 second hover
-        hoverTimeout.current = setTimeout(() => {
-            setShowToolbar(true);
-        }, 1000);
-    };
-
-    const handleMouseLeave = () => {
-        // Clear the timeout
-        if (hoverTimeout.current) {
-            clearTimeout(hoverTimeout.current);
-            hoverTimeout.current = null;
-        }
-        setShowToolbar(false);
+    const toggleToolbar = () => {
+        setShowToolbar(prev => !prev);
     };
 
     const handleBack = () => {
         router.push('/dashboard');
+    };
+
+    const activateKeyboard = () => {
+        // Focus the proxy input to trigger virtual keyboard on mobile/tablet
+        if (proxyInputRef.current) {
+            proxyInputRef.current.focus({ preventScroll: true });
+            proxyInputRef.current.click();
+        }
     };
 
     if (error) {
@@ -109,45 +101,60 @@ function GuacConsoleContent() {
 
     return (
         <div 
-            className="min-h-screen bg-gray-900 flex flex-col"
+            className="h-screen bg-gray-900 flex flex-col overflow-hidden"
             onClick={focusIframe} // Clicking anywhere outside toolbar should focus iframe
         >
-            {/* Thin hover trigger zone at very top edge - only 4px */}
-            <div 
-                className="fixed top-0 left-0 right-0 h-1 z-50"
-                onMouseEnter={handleMouseEnter}
-            />
+            {/* Toggle Button for Toolbar - Always visible */}
+            <div className="fixed top-0 left-1/2 transform -translate-x-1/2 z-[60] transition-opacity duration-300 opacity-30 hover:opacity-100">
+                <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        toggleToolbar();
+                    }}
+                    className="bg-gray-800/80 hover:bg-gray-700 text-gray-400 hover:text-white px-3 py-0.5 rounded-b-lg border-b border-x border-gray-600 shadow-lg text-[10px] font-bold transition-all"
+                    title={showToolbar ? "Hide Toolbar" : "Show Toolbar"}
+                >
+                    {showToolbar ? "▲ Hide Controls" : "▼ Show Controls"}
+                </button>
+            </div>
             
-            {/* Toolbar - auto hide, show on hover */}
+            {/* Toolbar - Toggle-based show/hide */}
             <div 
                 className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
                     showToolbar 
                         ? 'opacity-100 translate-y-0 pointer-events-auto' 
                         : 'opacity-0 -translate-y-full pointer-events-none'
                 }`}
-                onMouseEnter={() => {
-                    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
-                    setShowToolbar(true);
-                }}
-                onMouseLeave={handleMouseLeave}
             >
-                <div className="bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 px-4 py-2 flex items-center justify-between">
+                <div className="bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 px-2 py-1 flex items-center justify-between h-9">
                     <div className="flex items-center gap-3">
                         <button 
                             onClick={(e) => {
                                 e.stopPropagation(); // Prevent focusing iframe instantly so button works
                                 handleBack();
                             }}
-                            className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2"
+                            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs flex items-center gap-1"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                             </svg>
                             Back
                         </button>
-                        <span className="text-gray-400 text-sm">Guacamole Remote Console</span>
+                        <span className="text-gray-400 text-xs hidden md:inline">Guacamole Remote Console</span>
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* Show Keyboard Button */}
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                activateKeyboard();
+                            }}
+                            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs"
+                            title="Show Keyboard (for tablets)"
+                        >
+                            ⌨️ Keyboard
+                        </button>
+                        {/* Fullscreen Button */}
                         <button 
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -158,16 +165,19 @@ function GuacConsoleContent() {
                                     setTimeout(focusIframe, 100);
                                 }
                             }}
-                            className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm"
+                            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs"
+                            title="Fullscreen"
                         >
-                            Fullscreen
+                            ⛶ Fullscreen
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* Console Frame - full screen */}
-            <div className="flex-1 relative">
+            {/* Console Frame - full screen, no scrollbar */}
+            <div 
+                className={`flex-1 relative overflow-hidden ${showToolbar ? 'mt-9' : 'mt-0'}`}
+            >
                 {loading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
                         <div className="text-white animate-pulse">Loading Console...</div>
@@ -179,7 +189,7 @@ function GuacConsoleContent() {
                         id="guac-frame"
                         src={iframeSrc}
                         className="w-full h-full border-0"
-                        style={{ minHeight: '100vh' }}
+                        style={{ height: '100%' }}
                         allow="clipboard-read; clipboard-write; fullscreen"
                         onLoad={() => {
                             setLoading(false);
@@ -188,6 +198,22 @@ function GuacConsoleContent() {
                     />
                 )}
             </div>
+
+            {/* Proxy Input for Virtual Keyboard Support on Tablets */}
+            <input 
+                ref={proxyInputRef}
+                type="text"
+                inputMode="text"
+                className="fixed top-12 left-0 w-8 h-8 opacity-0 z-0 pointer-events-auto" 
+                autoCorrect="off" 
+                autoCapitalize="off" 
+                spellCheck="false" 
+                autoComplete="off"
+                onInput={(e) => {
+                    // Clear the input after capture (Guacamole handles its own input)
+                    (e.target as HTMLInputElement).value = '';
+                }}
+            />
         </div>
     );
 }
