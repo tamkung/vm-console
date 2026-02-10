@@ -23,6 +23,7 @@ function SharePageContent() {
   const [status, setStatus] = useState('connecting'); // connecting, connected, disconnected, error
   const [error, setError] = useState('');
   const [vmData, setVmData] = useState<{ vmid: number, node: string } | null>(null);
+  const [vmType, setVmType] = useState<string>('qemu');
 
   // Toolbar State
   const [showToolbar, setShowToolbar] = useState(true);
@@ -78,6 +79,7 @@ function SharePageContent() {
             const data = await res.json();
             const { ticket, port, node, vmid, expiresAt, type = 'qemu' } = data;
             setVmData({ vmid, node });
+            setVmType(type);
             
             
             // Set Timeout for Session Expiration & Timer UI
@@ -464,13 +466,15 @@ function SharePageContent() {
              >
                 Alt
              </button>
-             <button 
+             {vmType !== 'lxc' && (
+              <button 
                 onClick={() => sendKey(KEY_WIN)} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Windows Key"
-             >
+              >
                 Win
-             </button>
+              </button>
+             )}
              <button 
                 onClick={() => sendKey(KEY_TAB)} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
@@ -485,10 +489,12 @@ function SharePageContent() {
              >
                 Esc
              </button>
-            <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
+             {vmType !== 'lxc' && (
+              <>
+              <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
                 Ctrl-Alt-Del
-            </button>
-             <button 
+              </button>
+              <button 
                 onClick={() => {
                     const canvas = screenRef.current?.querySelector('canvas') as HTMLCanvasElement;
                     if (canvas) {
@@ -499,16 +505,11 @@ function SharePageContent() {
                 }} 
                 className={`px-3 py-1 rounded text-sm font-bold border shrink-0 ${localCursor ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
                 title="Toggle Local Cursor"
-             >
+              >
                 🖱️ Cursor
-             </button>
-            <button 
-                onClick={toggleFullScreen} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
-                title="Toggle Full Screen"
-            >
-                ⛶
-            </button>
+              </button>
+              </>
+             )}
              <button 
                 onClick={async () => {
                     try {
@@ -531,6 +532,15 @@ function SharePageContent() {
             >
                 📋 Paste
             </button>
+            {vmType !== 'lxc' && (
+            <button 
+                onClick={toggleFullScreen} 
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
+                title="Toggle Full Screen"
+            >
+                ⛶
+            </button>
+            )}
         </div>
       </div>
 

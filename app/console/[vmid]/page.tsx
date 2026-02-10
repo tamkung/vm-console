@@ -406,13 +406,15 @@ export default function ConsolePage() {
              >
                 Alt
              </button>
-             <button 
+             {type !== 'lxc' && (
+              <button 
                 onClick={() => sendKey(KEY_WIN)} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
                 title="Windows Key"
-             >
+              >
                 Win
-             </button>
+              </button>
+             )}
              <button 
                 onClick={() => sendKey(KEY_TAB)} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
@@ -427,10 +429,12 @@ export default function ConsolePage() {
              >
                 Esc
              </button>
-            <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
+             {type !== 'lxc' && (
+              <>
+              <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
                 Ctrl-Alt-Del
-            </button>
-             <button 
+              </button>
+              <button 
                 onClick={() => {
                     const canvas = screenRef.current?.querySelector('canvas') as HTMLCanvasElement;
                     if (canvas) {
@@ -441,16 +445,11 @@ export default function ConsolePage() {
                 }} 
                 className={`px-3 py-1 rounded text-sm font-bold border shrink-0 ${localCursor ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-700 hover:bg-gray-600 border-gray-600'}`}
                 title="Toggle Local Cursor"
-             >
+              >
                 🖱️ Cursor
-             </button>
-            <button 
-                onClick={toggleFullScreen} 
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
-                title="Toggle Full Screen"
-            >
-                ⛶
-            </button>
+              </button>
+              </>
+             )}
              <button 
                 onClick={async () => {
                     try {
@@ -459,10 +458,8 @@ export default function ConsolePage() {
                         
                         if (rfbRef.current?.sendText) {
                              rfbRef.current.sendText(text);
-                             // If mobile keyboard input is active, might want to focus it back?
                              if(proxyInputRef.current) proxyInputRef.current.focus();
                         } else {
-                            // Fallback for NoVNC if sendText isn't monkey-patched (should be though)
                              console.warn("sendText not available on rfb instance");
                         }
                     } catch (err) {
@@ -475,6 +472,15 @@ export default function ConsolePage() {
             >
                 📋 Paste
             </button>
+            {type !== 'lxc' && (
+            <button 
+                onClick={toggleFullScreen} 
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
+                title="Toggle Full Screen"
+            >
+                ⛶
+            </button>
+            )}
         </div>
       </div>
       
