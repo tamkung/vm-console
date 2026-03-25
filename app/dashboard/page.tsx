@@ -32,6 +32,9 @@ export default function DashboardPage() {
   const [shareVm, setShareVm] = useState<{vmid: number, node: string, type: 'qemu' | 'lxc'} | null>(null);
   const [openMenuVmId, setOpenMenuVmId] = useState<number | null>(null);
   const [showGuacModal, setShowGuacModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
   const [username, setUsername] = useState<string>('');
 
   // Get username from cookie on mount
@@ -144,7 +147,19 @@ export default function DashboardPage() {
     }
   };
 
-  const filteredResources = resources.filter(r => (r.type || 'qemu') === activeTab);
+  const filteredResources = resources.filter(r => {
+    if ((r.type || 'qemu') !== activeTab) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    const name = (r.name || '').toLowerCase();
+    const vmid = String(r.vmid);
+    return name.includes(q) || vmid.includes(q);
+  });
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredResources.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedResources = filteredResources.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   if (loading) {
     return (
@@ -200,20 +215,43 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex space-x-4 mb-6 border-b border-gray-700">
-            <button
-                className={`py-2 px-4 font-semibold border-b-2 transition-colors duration-200 ${activeTab === 'qemu' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
-                onClick={() => setActiveTab('qemu')}
-            >
-                Virtual Machines
-            </button>
-            <button
-                className={`py-2 px-4 font-semibold border-b-2 transition-colors duration-200 ${activeTab === 'lxc' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
-                onClick={() => setActiveTab('lxc')}
-            >
-                LXC Containers
-            </button>
+        {/* Tabs + Search */}
+        <div className="flex items-center justify-between mb-6 border-b border-gray-700">
+            <div className="flex space-x-4">
+                <button
+                    className={`py-2 px-4 font-semibold border-b-2 transition-colors duration-200 ${activeTab === 'qemu' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+                    onClick={() => { setActiveTab('qemu'); setCurrentPage(1); }}
+                >
+                    Virtual Machines
+                </button>
+                <button
+                    className={`py-2 px-4 font-semibold border-b-2 transition-colors duration-200 ${activeTab === 'lxc' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+                    onClick={() => { setActiveTab('lxc'); setCurrentPage(1); }}
+                >
+                    LXC Containers
+                </button>
+            </div>
+
+            <div className="relative ml-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                    placeholder="Search by name or VMID..."
+                    className="w-64 bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-8 py-1.5 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition"
+                />
+                {searchQuery && (
+                    <button
+                        onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                    >
+                        ✕
+                    </button>
+                )}
+            </div>
         </div>
 
         {error && (
@@ -223,10 +261,16 @@ export default function DashboardPage() {
         )}
 
         {filteredResources.length === 0 && !error ? (
-          <div className="text-center text-gray-500 mt-10">No {activeTab === 'qemu' ? 'VMs' : 'Containers'} found.</div>
+          <div className="text-center text-gray-500 mt-10">
+            {searchQuery 
+              ? `No results for "${searchQuery}"` 
+              : `No ${activeTab === 'qemu' ? 'VMs' : 'Containers'} found.`
+            }
+          </div>
         ) : (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredResources.map((res) => {
+            {paginatedResources.map((res) => {
               const isRunning = res.status === 'running';
               const type = res.type || 'qemu';
               return (
@@ -370,6 +414,60 @@ export default function DashboardPage() {
               </div>
             )})}
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-2 mt-8">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-3 py-1.5 rounded text-sm bg-gray-800 border border-gray-600 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                ← Prev
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => {
+                  // Show first, last, current, and neighbors
+                  if (page === 1 || page === totalPages) return true;
+                  if (Math.abs(page - safePage) <= 1) return true;
+                  return false;
+                })
+                .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
+                  if (idx > 0 && page - (arr[idx - 1] as number) > 1) {
+                    acc.push('ellipsis');
+                  }
+                  acc.push(page);
+                  return acc;
+                }, [])
+                .map((item, idx) => (
+                  item === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-2 text-gray-500">…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setCurrentPage(item as number)}
+                      className={`px-3 py-1.5 rounded text-sm border transition ${
+                        safePage === item
+                          ? 'bg-blue-600 border-blue-500 text-white'
+                          : 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  )
+                ))}
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-3 py-1.5 rounded text-sm bg-gray-800 border border-gray-600 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
 
