@@ -130,6 +130,16 @@ export class ProxmoxClient {
         });
     }
 
+    async renewTicket(ticket: string): Promise<ProxmoxTicketResponse> {
+        // Proxmox allows renewing a ticket by POSTing with the existing ticket as password
+        return this.fetch<ProxmoxTicketResponse>('/api2/json/access/ticket', {
+            method: 'POST',
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+            },
+        });
+    }
+
     async getNodes(ticket: string): Promise<string[]> {
         const res = await this.fetch<ProxmoxNodeListResponse>('/api2/json/nodes', {
             headers: {

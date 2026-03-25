@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { shareStore } from './lib/store';
 // import jwt from 'jsonwebtoken';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -62,5 +63,12 @@ app.prepare().then(() => {
     server.listen(port, () => {
         console.log(`> Ready on http://localhost:${port}`);
         console.log(`> WebSocket Proxy ready on /api/proxy`);
+
+        // Auto-cleanup expired shares every 5 minutes
+        setInterval(() => {
+            shareStore.cleanup();
+        }, 5 * 60 * 1000);
+        shareStore.cleanup(); // Run on startup
+        console.log('> Share auto-cleanup enabled (every 5 min)');
     });
 });
