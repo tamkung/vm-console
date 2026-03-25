@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { GUACAMOLE_PROXY_PREFIX } from '@/lib/guacamole';
 
 interface ConnectionRequest {
     protocol: 'rdp' | 'vnc' | 'ssh';
@@ -186,9 +187,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Build the connection URL (using direct Guacamole URL - proxy doesn't work with hash routing)
+        // Build the connection URL through the local proxy so the browser never sees the backend host
         const connectionId = Buffer.from(`${connectionName}\0c\0json`).toString('base64');
-        const consoleUrl = `${guacamoleUrl}/guacamole/#/client/${connectionId}?token=${authToken}`;
+        const consoleUrl = `${GUACAMOLE_PROXY_PREFIX}/#/client/${connectionId}?token=${authToken}`;
 
         // Generate session ID and store the URL server-side
         cleanupSessions();

@@ -5,7 +5,7 @@ import { ProxmoxClient } from '@/lib/proxmox';
 export async function GET(request: NextRequest) {
     const cookieStore = await cookies();
     const ticket = cookieStore.get('PVEAuthCookie')?.value;
-    const savedHost = cookieStore.get('proxmox_host')?.value;
+    const savedHost = cookieStore.get('PROXMOX_HOST')?.value;
 
     if (!ticket) {
         return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

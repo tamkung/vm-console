@@ -130,6 +130,16 @@ export class ProxmoxClient {
         });
     }
 
+    async renewTicket(ticket: string): Promise<ProxmoxTicketResponse> {
+        // Proxmox allows renewing a ticket by POSTing with the existing ticket as password
+        return this.fetch<ProxmoxTicketResponse>('/api2/json/access/ticket', {
+            method: 'POST',
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+            },
+        });
+    }
+
     async getNodes(ticket: string): Promise<string[]> {
         const res = await this.fetch<ProxmoxNodeListResponse>('/api2/json/nodes', {
             headers: {
@@ -255,5 +265,26 @@ export class ProxmoxClient {
         }
 
         return ips;
+    }
+
+    async getVmStatus(node: string, vmid: number, ticket: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<Record<string, any>> {
+        const res = await this.fetch<{ data: Record<string, any> }>(`/api2/json/nodes/${node}/${type}/${vmid}/status/current`, {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` },
+        });
+        return res.data;
+    }
+
+    async getVmConfig(node: string, vmid: number, ticket: string, type: 'qemu' | 'lxc' = 'qemu'): Promise<Record<string, any>> {
+        const res = await this.fetch<{ data: Record<string, any> }>(`/api2/json/nodes/${node}/${type}/${vmid}/config`, {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` },
+        });
+        return res.data;
+    }
+
+    async getVmRrdData(node: string, vmid: number, ticket: string, type: 'qemu' | 'lxc' = 'qemu', timeframe: string = 'hour'): Promise<any[]> {
+        const res = await this.fetch<{ data: any[] }>(`/api2/json/nodes/${node}/${type}/${vmid}/rrddata?timeframe=${timeframe}`, {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` },
+        });
+        return res.data || [];
     }
 }
