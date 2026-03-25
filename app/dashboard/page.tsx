@@ -417,7 +417,7 @@ export default function DashboardPage() {
                                         e.stopPropagation();
                                         handleResourceClick(res.vmid, res.node, type);
                                     }}
-                                    className="cursor-pointer text-emerald-500 hover:text-emerald-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-emerald-900/30 border border-emerald-700/50"
+                                    className="cursor-pointer text-cyan-500 hover:text-cyan-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-cyan-900/30 border border-cyan-700/50"
                                     title="Open Console"
                                 >
                                     Console &rarr;

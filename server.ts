@@ -51,6 +51,8 @@ app.prepare().then(() => {
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
         secure: false, // Ignore self-signed certs
+        proxyTimeout: 0, // Disable timeout to prevent frequent disconnects
+        timeout: 0,
         pathRewrite: {
             '^/api/proxy': '', // Remove /api/proxy prefix
         },
@@ -60,10 +62,13 @@ app.prepare().then(() => {
             const match = cookieHeader.match(/(?:^|;\s*)PROXMOX_HOST=([^;]*)/);
             const customHost = match ? decodeURIComponent(match[1]) : null;
             const target = customHost || process.env.PROXMOX_URL;
-            console.log('Proxy target resolved to:', target);
             return target;
         },
         onProxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
+            // Proxmox strictly checks the Origin header for WebSocket connections
+            if (options.target && options.target.href) {
+                proxyReq.setHeader('Origin', options.target.href.replace(/\/$/, ''));
+            }
             console.log('WebSocket Connection Attempt:', req.url);
         },
         onError: (err: any, req: any, res: any) => {
