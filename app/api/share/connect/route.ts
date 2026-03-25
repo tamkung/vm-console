@@ -66,6 +66,17 @@ export async function POST(request: NextRequest) {
             maxAge: 7200 // 2 hours match
         });
 
+        // Set PROXMOX_HOST cookie so the WebSocket proxy routes to the correct host
+        if (host && host !== process.env.PROXMOX_URL) {
+            response.cookies.set('PROXMOX_HOST', host, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                path: '/',
+                sameSite: 'lax',
+                maxAge: 7200
+            });
+        }
+
         return response;
 
     } catch (error: any) {

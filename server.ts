@@ -28,6 +28,15 @@ app.prepare().then(() => {
         pathRewrite: {
             '^/api/proxy': '', // Remove /api/proxy prefix
         },
+        router: (req: any) => {
+            // Dynamically resolve target from PROXMOX_HOST cookie (set when using custom host)
+            const cookieHeader = req.headers?.cookie || '';
+            const match = cookieHeader.match(/(?:^|;\s*)PROXMOX_HOST=([^;]*)/);
+            const customHost = match ? decodeURIComponent(match[1]) : null;
+            const target = customHost || process.env.PROXMOX_URL;
+            console.log('Proxy target resolved to:', target);
+            return target;
+        },
         onProxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
             console.log('WebSocket Connection Attempt:', req.url);
         },
