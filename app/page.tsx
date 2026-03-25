@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import GuacamoleModal from './components/GuacamoleModal';
 
@@ -14,6 +14,15 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showGuacModal, setShowGuacModal] = useState(false);
+
+  // Load last used custom host from localStorage
+  useEffect(() => {
+    const savedHost = localStorage.getItem('lastProxmoxHost');
+    if (savedHost) {
+      setCustomHost(savedHost);
+      setUseCustomHost(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +49,13 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (data.success) {
+        // Save custom host to localStorage for next login
+        if (useCustomHost && customHost) {
+            localStorage.setItem('lastProxmoxHost', customHost);
+        } else {
+            localStorage.removeItem('lastProxmoxHost');
+        }
+
         // Store the encrypted credentials blob for sharing features
         if (data.credentialsToken) {
             sessionStorage.setItem('vm_console_creds', data.credentialsToken);

@@ -36,6 +36,9 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'stopped'>('all');
+  const [sortBy, setSortBy] = useState<'vmid' | 'name' | 'status' | 'cpu' | 'memory' | 'uptime'>('vmid');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [username, setUsername] = useState<string>('');
   useSessionRefresh();
 
@@ -155,11 +158,23 @@ export default function DashboardPage() {
 
   const filteredResources = resources.filter(r => {
     if ((r.type || 'qemu') !== activeTab) return false;
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.trim().toLowerCase();
     const name = (r.name || '').toLowerCase();
     const vmid = String(r.vmid);
     return name.includes(q) || vmid.includes(q);
+  }).sort((a, b) => {
+    let cmp = 0;
+    switch (sortBy) {
+      case 'name': cmp = (a.name || '').localeCompare(b.name || ''); break;
+      case 'status': cmp = a.status.localeCompare(b.status); break;
+      case 'cpu': cmp = (a.cpu || 0) - (b.cpu || 0); break;
+      case 'memory': cmp = (a.mem || 0) - (b.mem || 0); break;
+      case 'uptime': cmp = (a.uptime || 0) - (b.uptime || 0); break;
+      default: cmp = a.vmid - b.vmid;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
   });
 
   // Pagination
@@ -224,7 +239,7 @@ export default function DashboardPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                Console
+                Guacamole
               </button>
               <button 
                 onClick={fetchResources}
@@ -286,7 +301,50 @@ export default function DashboardPage() {
             </div>
         </div>
 
-        {error && (
+        {/* Filters + Sort */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+            {/* Status Filter */}
+            <div className="flex items-center bg-gray-800 rounded-lg border border-gray-700 overflow-hidden text-sm">
+                {(['all', 'running', 'stopped'] as const).map(s => (
+                    <button
+                        key={s}
+                        onClick={() => { setStatusFilter(s); setCurrentPage(1); }}
+                        className={`px-3 py-1.5 capitalize transition ${statusFilter === s ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                    >
+                        {s === 'all' ? 'All' : s === 'running' ? '🟢 Running' : '⏹ Stopped'}
+                    </button>
+                ))}
+            </div>
+
+            {/* Sort */}
+            <div className="flex items-center gap-1 ml-auto">
+                <span className="text-xs text-gray-500 mr-1">Sort:</span>
+                <select
+                    value={sortBy}
+                    onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setCurrentPage(1); }}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                >
+                    <option value="vmid">VMID</option>
+                    <option value="name">Name</option>
+                    <option value="status">Status</option>
+                    <option value="cpu">CPU</option>
+                    <option value="memory">Memory</option>
+                    <option value="uptime">Uptime</option>
+                </select>
+                <button
+                    onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-400 hover:text-white transition"
+                    title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
+                >
+                    {sortDir === 'asc' ? '↑' : '↓'}
+                </button>
+            </div>
+
+            {/* Count */}
+            <span className="text-xs text-gray-500">
+                {filteredResources.length} item{filteredResources.length !== 1 ? 's' : ''}
+            </span>
+        </div>        {error && (
           <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded mb-6">
             Error: {error}
           </div>
@@ -310,10 +368,10 @@ export default function DashboardPage() {
                 key={`${type}-${res.vmid}`} 
                 className={`bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-700 transition relative ${isRunning ? 'border-blue-500/30' : 'opacity-90'}`}
               >
-                {/* Main Card Content - Clickable for Console if Running */}
+                {/* Main Card Content - Clickable for VM Detail */}
                 <div 
-                    className={`p-6 ${isRunning ? 'cursor-pointer hover:bg-gray-700/50' : ''}`}
-                    onClick={() => isRunning && handleResourceClick(res.vmid, res.node, type)}
+                    className="p-6 cursor-pointer hover:bg-gray-700/50"
+                    onClick={() => router.push(`/vm/${res.vmid}?node=${res.node}&type=${type}`)}
                 >
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-white truncate">{res.name || `${type.toUpperCase()} ${res.vmid}`}</h2>
@@ -355,6 +413,16 @@ export default function DashboardPage() {
                         {isRunning ? (
                             <>
                                 <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleResourceClick(res.vmid, res.node, type);
+                                    }}
+                                    className="cursor-pointer text-emerald-500 hover:text-emerald-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-emerald-900/30 border border-emerald-700/50"
+                                    title="Open Console"
+                                >
+                                    Console &rarr;
+                                </button>
+                                <button 
                                     onClick={(e) => handleAction(e, res.vmid, res.node, 'shutdown', type)}
                                     className="cursor-pointer text-yellow-500 hover:text-yellow-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-yellow-900/30 border border-yellow-700/50"
                                     title="Shutdown"
@@ -379,7 +447,7 @@ export default function DashboardPage() {
                         ) : (
                             <button 
                                 onClick={(e) => handleAction(e, res.vmid, res.node, 'start', type)}
-                                className="cursor-pointer text-green-500 hover:text-green-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-green-900/30 border border-green-700/50 w-full md:w-auto"
+                                className="cursor-pointer text-green-500 hover:text-green-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-green-900/30 border border-green-700/50"
                                 title="Start"
                             >
                                 Start
@@ -407,7 +475,7 @@ export default function DashboardPage() {
                                 {openMenuVmId === res.vmid && (
                                     <div className="absolute right-0 bottom-full mb-2 w-32 bg-gray-800 border border-gray-600 rounded shadow-xl z-20 flex flex-col overflow-hidden">
                                         <button
-                                            className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white border-b border-gray-700"
+                                            className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setOpenMenuVmId(null);
@@ -415,16 +483,6 @@ export default function DashboardPage() {
                                             }}
                                         >
                                             Share 🔗
-                                        </button>
-                                        <button
-                                            className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setOpenMenuVmId(null);
-                                                handleResourceClick(res.vmid, res.node, type);
-                                            }}
-                                        >
-                                            Console &rarr;
                                         </button>
                                     </div>
                                 )}
