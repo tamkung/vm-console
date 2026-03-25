@@ -422,27 +422,6 @@ export default function DashboardPage() {
                                 >
                                     Console &rarr;
                                 </button>
-                                <button 
-                                    onClick={(e) => handleAction(e, res.vmid, res.node, 'shutdown', type)}
-                                    className="cursor-pointer text-yellow-500 hover:text-yellow-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-yellow-900/30 border border-yellow-700/50"
-                                    title="Shutdown"
-                                >
-                                    Shutdown
-                                </button>
-                                <button 
-                                    onClick={(e) => handleAction(e, res.vmid, res.node, 'reboot', type)}
-                                    className="cursor-pointer text-blue-500 hover:text-blue-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-blue-900/30 border border-blue-700/50"
-                                    title="Reboot"
-                                >
-                                    Reboot
-                                </button>
-                                <button 
-                                    onClick={(e) => handleAction(e, res.vmid, res.node, 'stop', type)}
-                                    className="cursor-pointer text-red-500 hover:text-red-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-red-900/30 border border-red-700/50"
-                                    title="Force Stop"
-                                >
-                                    Stop
-                                </button>
                             </>
                         ) : (
                             <button 
@@ -474,6 +453,24 @@ export default function DashboardPage() {
 
                                 {openMenuVmId === res.vmid && (
                                     <div className="absolute right-0 bottom-full mb-2 w-32 bg-gray-800 border border-gray-600 rounded shadow-xl z-20 flex flex-col overflow-hidden">
+                                        <button
+                                            className="px-4 py-2 text-left text-sm text-yellow-500 hover:bg-gray-700 hover:text-yellow-400 border-b border-gray-700"
+                                            onClick={(e) => { e.stopPropagation(); setOpenMenuVmId(null); handleAction(e, res.vmid, res.node, 'shutdown', type); }}
+                                        >
+                                            Shutdown
+                                        </button>
+                                        <button
+                                            className="px-4 py-2 text-left text-sm text-blue-500 hover:bg-gray-700 hover:text-blue-400 border-b border-gray-700"
+                                            onClick={(e) => { e.stopPropagation(); setOpenMenuVmId(null); handleAction(e, res.vmid, res.node, 'reboot', type); }}
+                                        >
+                                            Reboot
+                                        </button>
+                                        <button
+                                            className="px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-700 hover:text-red-400 border-b border-gray-700"
+                                            onClick={(e) => { e.stopPropagation(); setOpenMenuVmId(null); handleAction(e, res.vmid, res.node, 'stop', type); }}
+                                        >
+                                            Force Stop
+                                        </button>
                                         <button
                                             className="px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
                                             onClick={(e) => {
