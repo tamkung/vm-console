@@ -83,6 +83,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const sessionTtlMinutes = parseInt(process.env.GUACAMOLE_SESSION_TTL_MINUTES || '480', 10);
+        const sessionTtlMs = sessionTtlMinutes * 60 * 1000;
+
         // Build connection parameters based on protocol
         const connectionParams: Record<string, string> = {
             hostname: host,
@@ -140,7 +143,7 @@ export async function POST(request: NextRequest) {
 
         // Create JSON payload for Guacamole
         const connectionName = `${protocol.toUpperCase()}-${host}`;
-        const expiresAt = Date.now() + (30 * 60 * 1000); // 30 minutes expiry
+        const expiresAt = Date.now() + sessionTtlMs;
 
         const payload = {
             username: 'guac_user',
@@ -187,7 +190,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Build the connection URL through the local proxy so the browser never sees the backend host
+        // Build the connection URL through the local proxy so the browser never sees the backend host.
         const connectionId = Buffer.from(`${connectionName}\0c\0json`).toString('base64');
         const consoleUrl = `${GUACAMOLE_PROXY_PREFIX}/#/client/${connectionId}?token=${authToken}`;
 
@@ -196,11 +199,18 @@ export async function POST(request: NextRequest) {
         const sessionId = crypto.randomBytes(32).toString('hex');
         sessionStore.set(sessionId, {
             url: consoleUrl,
-            expiresAt: Date.now() + (30 * 60 * 1000) // 30 minutes to match Guacamole token
+            expiresAt: Date.now() + sessionTtlMs
         });
 
-        // Return only the session ID, not the actual URL
-        return NextResponse.json({ sessionId });
+        const requestUrl = new URL(request.url);
+        const forwardedProto = request.headers.get('x-forwarded-proto');
+        const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
+        const hostHeader = request.headers.get('host') || requestUrl.host;
+        const hostname = hostHeader.split(':')[0];
+        const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
+        const isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
+
+        return NextResponse.json({ sessionId, isolatedUrl });
 
     } catch (error) {
         console.error('Guacamole connect error:', error);

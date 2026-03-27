@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Swal from 'sweetalert2';
 
 interface VM {
@@ -26,7 +25,6 @@ const DEFAULT_PORTS: Record<Protocol, number> = {
 };
 
 export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProps) {
-    const router = useRouter();
     const [protocol, setProtocol] = useState<Protocol>('rdp');
     const [host, setHost] = useState('');
     const [port, setPort] = useState('3389');
@@ -158,10 +156,16 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
             }
 
             const data = await res.json();
+            const modeQuery = 'mode=new-tab';
             
-            // Navigate to embedded console page
-            if (data.sessionId) {
-                router.push(`/console/guac?session=${data.sessionId}`);
+            if (data.isolatedUrl) {
+                const separator = data.isolatedUrl.includes('?') ? '&' : '?';
+                const targetUrl = `${data.isolatedUrl}${separator}${modeQuery}`;
+                window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                onClose();
+            } else if (data.sessionId) {
+                const guacUrl = `/console/guac?session=${encodeURIComponent(data.sessionId)}&${modeQuery}`;
+                window.open(guacUrl, '_blank', 'noopener,noreferrer');
                 onClose();
             } else {
                 throw new Error('No session received');
