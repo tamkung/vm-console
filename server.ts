@@ -153,11 +153,20 @@ app.prepare().then(() => {
         const parsedUrl = parse(req.url!, true);
 
         if (parsedUrl.pathname?.startsWith('/api/proxy')) {
-            console.log('Proxying WebSocket:', req.url);
+            // Manually rewrite the path before proxying - http-proxy-middleware v3
+            // may not apply pathRewrite for manually-triggered WebSocket upgrades
+            // (especially when behind a reverse proxy like Nginx)
+            req.url = req.url!.replace(/^\/api\/proxy/, '');
+            console.log('Proxying WebSocket (rewritten):', req.url);
+
+            socket.on('error', (err: any) => {
+                console.error('WebSocket socket error:', err.message);
+            });
+
             // @ts-expect-error - http-proxy-middleware types are a bit tricky with 'upgrade'
             proxy.upgrade(req, socket, head);
         } else {
-            // socket.destroy();
+            socket.destroy();
         }
     });
 
