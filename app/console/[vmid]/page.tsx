@@ -32,6 +32,7 @@ export default function ConsolePage() {
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFBInstance | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState('');
@@ -80,8 +81,38 @@ export default function ConsolePage() {
       return;
     }
 
+    let cancelled = false;
+
+    const cleanupConnection = () => {
+      try {
+        cleanupRef.current?.();
+      } catch (_) { // eslint-disable-line @typescript-eslint/no-unused-vars
+        // ignore
+      } finally {
+        cleanupRef.current = null;
+      }
+
+      if (rfbRef.current) {
+        try {
+          rfbRef.current.disconnect();
+        } catch (_) { // eslint-disable-line @typescript-eslint/no-unused-vars
+          // ignore
+        } finally {
+          rfbRef.current = null;
+        }
+      }
+
+      if (screenRef.current) {
+        screenRef.current.innerHTML = '';
+      }
+    };
+
     const connect = async () => {
       try {
+        cleanupConnection();
+        setError('');
+        setStatus('connecting');
+
         const res = await fetch(`/api/console/${vmid}/ticket?node=${node}&type=${type}`, {
           method: 'POST',
         });
@@ -109,6 +140,7 @@ export default function ConsolePage() {
         console.log('Connecting to (Proxy):', url);
 
         if (screenRef.current) {
+             screenRef.current.innerHTML = '';
              if (type === 'lxc') {
                 // XTERM.JS Logic
                 const { Terminal } = await import('xterm');
@@ -177,8 +209,11 @@ export default function ConsolePage() {
                     }
                 };
 
-                socket.onclose = () => setStatus('disconnected');
+                socket.onclose = () => {
+                    if (!cancelled) setStatus('disconnected');
+                };
                 socket.onerror = () => {
+                    if (cancelled) return;
                     setError('WebSocket Error');
                     setStatus('error');
                 };
@@ -201,6 +236,9 @@ export default function ConsolePage() {
                     }
                 };
                 window.addEventListener('resize', handleResize);
+                cleanupRef.current = () => {
+                    window.removeEventListener('resize', handleResize);
+                };
                 
                 rfbRef.current = {
                     disconnect: () => {
@@ -246,10 +284,11 @@ export default function ConsolePage() {
                 });
 
                 rfb.addEventListener("disconnect", () => {
-                    setStatus('disconnected');
+                    if (!cancelled) setStatus('disconnected');
                 });
                 
                 rfb.addEventListener("securityfailure", () => {
+                     if (cancelled) return;
                      setError('Security failure/Auth failed');
                 });
                  
@@ -284,16 +323,17 @@ export default function ConsolePage() {
 
     connect();
 
-    return () => {
-      if (rfbRef.current) {
-        try {
-            rfbRef.current.disconnect();
-        } catch (_) { // eslint-disable-line @typescript-eslint/no-unused-vars
-            // ignore
-        }
-      }
+    const handlePageHide = () => {
+      cleanupConnection();
     };
-  }, [vmid, node]);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pagehide', handlePageHide);
+      cleanupConnection();
+    };
+  }, [vmid, node, type, router]);
 
   const toggleToolbar = () => {
     setShowToolbar(prev => !prev);
@@ -311,7 +351,7 @@ export default function ConsolePage() {
 
   // Handle browser back or manual navigation
   const handleBack = () => {
-    router.push('/dashboard');
+    window.location.assign('/dashboard');
   };
 
   // Trigger resize when toolbar visibility changes to fill the gap

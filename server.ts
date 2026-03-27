@@ -7,13 +7,28 @@ import { getGuacamoleServerBaseUrl, GUACAMOLE_PROXY_PREFIX } from './lib/guacamo
 // import jwt from 'jsonwebtoken';
 
 const dev = process.env.NODE_ENV !== 'production';
-const app = next({ dev });
+const server = createServer();
+const app = next({ dev, httpServer: server });
 const handle = app.getRequestHandler();
 
 // Allow self-signed certs for the proxy
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 app.prepare().then(() => {
+    const guacProxyPort = Number(process.env.GUACAMOLE_PROXY_PORT || 3001);
+    const mainAppPort = Number(process.env.PORT || 3000);
+
+    const getCookieValue = (cookieHeader: string, name: string) => {
+        const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : null;
+    };
+
+    const resolveProxyTarget = (req: { headers?: { cookie?: string } }) => {
+        const cookieHeader = req.headers?.cookie || '';
+        const customHost = getCookieValue(cookieHeader, 'PROXMOX_HOST');
+        return customHost || process.env.PROXMOX_URL;
+    };
+
     const guacamoleProxy = createProxyMiddleware({
         target: getGuacamoleServerBaseUrl(process.env.GUACAMOLE_URL),
         changeOrigin: true,
@@ -25,7 +40,7 @@ app.prepare().then(() => {
         }
     } as any);
 
-    const server = createServer((req, res) => {
+    server.on('request', (req, res) => {
         const parsedUrl = parse(req.url!, true);
 
         if (parsedUrl.pathname?.startsWith(GUACAMOLE_PROXY_PREFIX)) {
@@ -63,7 +78,7 @@ app.prepare().then(() => {
     const proxy = createProxyMiddleware({
         target: process.env.PROXMOX_URL,
         changeOrigin: true,
-        ws: true, // Enable WebSocket proxying
+        ws: true,
         secure: false, // Ignore self-signed certs
         xfwd: true,   // Add x-forwarded-for headers
         proxyTimeout: 0, // Disable timeout to prevent frequent disconnects
@@ -72,32 +87,66 @@ app.prepare().then(() => {
             '^/api/proxy': '', // Remove /api/proxy prefix
         },
         router: (req: any) => {
-            // Dynamically resolve target from PROXMOX_HOST cookie (set when using custom host)
-            const cookieHeader = req.headers?.cookie || '';
-            const match = cookieHeader.match(/(?:^|;\s*)PROXMOX_HOST=([^;]*)/);
-            const customHost = match ? decodeURIComponent(match[1]) : null;
-            const target = customHost || process.env.PROXMOX_URL;
-            return target;
+            return resolveProxyTarget(req);
         },
         onProxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
-            // Proxmox strictly checks the Origin header for WebSocket connections
-            if (options.target && typeof options.target !== 'string') {
-                const targetUrl = (options.target as any).href || options.target;
-                if (targetUrl) {
-                    proxyReq.setHeader('Origin', targetUrl.toString().replace(/\/$/, ''));
-                }
+            const targetUrl = resolveProxyTarget(req) || options.target;
+            if (targetUrl) {
+                proxyReq.setHeader('Origin', targetUrl.toString().replace(/\/$/, ''));
             }
-            
-            // CRITICAL: Strip Sec-WebSocket-Extensions to prevent "Invalid frame header" errors
-            // Some proxies or Proxmox versions don't handle compression correctly over the proxy
+
+            const cookieHeader = req.headers?.cookie || '';
+            const pveAuthCookie = getCookieValue(cookieHeader, 'PVEAuthCookie');
+            if (pveAuthCookie) {
+                proxyReq.setHeader('Cookie', `PVEAuthCookie=${encodeURIComponent(pveAuthCookie)}`);
+            }
+
             proxyReq.removeHeader('Sec-WebSocket-Extensions');
-            
-            console.log('WebSocket Connection Attempt:', req.url);
+
+            console.log('WebSocket Connection Attempt:', req.url, {
+                target: targetUrl,
+                hasAuthCookie: Boolean(pveAuthCookie),
+            });
         },
         onError: (err: any, req: any, res: any) => {
             console.error('Proxy Error:', err);
         }
     } as any);
+
+    const guacServer = createServer((req, res) => {
+        const parsedUrl = parse(req.url!, true);
+        const pathname = parsedUrl.pathname || '';
+
+        if (pathname.startsWith(GUACAMOLE_PROXY_PREFIX)) {
+            guacamoleProxy(req, res, (err: unknown) => {
+                if (err) {
+                    console.error('Isolated Guacamole proxy request failed:', err);
+                    if (!res.headersSent) {
+                        res.statusCode = 502;
+                        res.end('Bad gateway');
+                    }
+                }
+            });
+            return;
+        }
+
+        const isGuacPage =
+            pathname === '/console/guac' ||
+            pathname.startsWith('/api/guacamole/session') ||
+            pathname.startsWith('/_next/') ||
+            pathname === '/favicon.ico';
+
+        if (isGuacPage) {
+            handle(req, res, parsedUrl);
+            return;
+        }
+
+        const hostHeader = req.headers.host || `localhost:${guacProxyPort}`;
+        const hostname = hostHeader.split(':')[0];
+        res.statusCode = 302;
+        res.setHeader('Location', `http://${hostname}:${mainAppPort}/dashboard`);
+        res.end();
+    });
 
     // Manually upgrade the WebSocket connection
     server.on('upgrade', (req, socket, head) => {
@@ -105,14 +154,22 @@ app.prepare().then(() => {
 
         if (parsedUrl.pathname?.startsWith('/api/proxy')) {
             console.log('Proxying WebSocket:', req.url);
-            // @ts-ignore - http-proxy-middleware types are a bit tricky with 'upgrade'
+            // @ts-expect-error - http-proxy-middleware types are a bit tricky with 'upgrade'
             proxy.upgrade(req, socket, head);
-        } else if (parsedUrl.pathname?.startsWith(GUACAMOLE_PROXY_PREFIX)) {
-            console.log('Proxying Guacamole WebSocket:', req.url);
-            // @ts-ignore - http-proxy-middleware types are a bit tricky with 'upgrade'
-            guacamoleProxy.upgrade(req, socket, head);
         } else {
             // socket.destroy();
+        }
+    });
+
+    guacServer.on('upgrade', (req, socket, head) => {
+        const parsedUrl = parse(req.url!, true);
+
+        if (parsedUrl.pathname?.startsWith(GUACAMOLE_PROXY_PREFIX)) {
+            console.log('Proxying Guacamole WebSocket:', req.url);
+            // @ts-expect-error - http-proxy-middleware types are a bit tricky with 'upgrade'
+            guacamoleProxy.upgrade(req, socket, head);
+        } else {
+            socket.destroy();
         }
     });
 
@@ -120,7 +177,8 @@ app.prepare().then(() => {
     server.listen(port, () => {
         console.log(`> Ready on http://localhost:${port}`);
         console.log(`> WebSocket Proxy ready on /api/proxy`);
-        console.log(`> Guacamole Proxy ready on ${GUACAMOLE_PROXY_PREFIX}`);
+        console.log(`> Main app excludes Guacamole proxy traffic`);
+        console.log(`> Guacamole Proxy ready on http://localhost:${guacProxyPort}${GUACAMOLE_PROXY_PREFIX}`);
 
         // Auto-cleanup expired shares every 5 minutes
         setInterval(() => {
@@ -128,5 +186,9 @@ app.prepare().then(() => {
         }, 5 * 60 * 1000);
         shareStore.cleanup(); // Run on startup
         console.log('> Share auto-cleanup enabled (every 5 min)');
+    });
+
+    guacServer.listen(guacProxyPort, () => {
+        console.log(`> Isolated Guacamole server listening on http://localhost:${guacProxyPort}`);
     });
 });

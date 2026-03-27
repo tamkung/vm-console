@@ -158,16 +158,19 @@ You can run the application using Docker, providing custom environment variables
 ```bash
 docker run -d \
   -p 3000:3000 \
+  -p 3001:3001 \
   -e PROXMOX_URL="https://192.168.1.100:8006" \
   -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
   -e JWT_SECRET="your-secret-key-at-least-32-chars" \
   -e GUACAMOLE_URL="http://192.168.1.155:8080" \
   -e GUACAMOLE_SECRET_KEY="your-32-hex-character-secret-key" \
+  -e GUACAMOLE_PROXY_PORT="3001" \
   --name proxmox-console \
   yourusername/proxmox-web-console:latest
 ```
 
 *Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
+*Note: Port `3001` is used for the isolated Guacamole viewer so it does not interfere with the main console on `3000`.*
 
 ---
 

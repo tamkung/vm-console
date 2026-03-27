@@ -23,3 +23,14 @@ export async function GET(request: NextRequest) {
     // Return the URL as JSON (client will use for iframe)
     return NextResponse.json({ url: session.url });
 }
+
+export async function DELETE(request: NextRequest) {
+    const sessionId = request.nextUrl.searchParams.get('session');
+
+    if (!sessionId) {
+        return NextResponse.json({ error: 'Missing session ID' }, { status: 400 });
+    }
+
+    sessionStore.delete(sessionId);
+    return NextResponse.json({ ok: true });
+}

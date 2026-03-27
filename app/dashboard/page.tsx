@@ -87,7 +87,7 @@ export default function DashboardPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleResourceClick = (vmid: number, node: string, type: 'qemu' | 'lxc' = 'qemu') => {
-    router.push(`/console/${vmid}?node=${node}&type=${type}`);
+    window.location.assign(`/console/${vmid}?node=${node}&type=${type}`);
   };
 
   const statusColor = (status: string) => {
