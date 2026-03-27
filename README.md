@@ -165,12 +165,17 @@ docker run -d \
   -e GUACAMOLE_URL="http://192.168.1.155:8080" \
   -e GUACAMOLE_SECRET_KEY="your-32-hex-character-secret-key" \
   -e GUACAMOLE_PROXY_PORT="3001" \
+  -e GUACAMOLE_PROXY_PUBLIC_URL="https://your-domain.example/guac-console" \
   --name proxmox-console \
   yourusername/proxmox-web-console:latest
 ```
 
 *Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
-*Note: Port `3001` is used for the isolated Guacamole viewer so it does not interfere with the main console on `3000`.*
+*Note: Port `3001` is used internally for the isolated Guacamole viewer so it does not interfere with the main console on `3000`. When deploying behind Nginx, set `GUACAMOLE_PROXY_PUBLIC_URL` to the public reverse-proxy path, for example `https://host/guac-console`.*
+
+If `GUACAMOLE_PROXY_PUBLIC_URL` is not set, the app will auto-detect:
+- `localhost` or `127.0.0.1`: use `:3001`
+- any other host or domain behind reverse proxy: use `/guac-console`
 
 ---
 
