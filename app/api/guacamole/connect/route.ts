@@ -202,13 +202,30 @@ export async function POST(request: NextRequest) {
             expiresAt: Date.now() + sessionTtlMs
         });
 
-        const requestUrl = new URL(request.url);
-        const forwardedProto = request.headers.get('x-forwarded-proto');
-        const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
-        const hostHeader = request.headers.get('host') || requestUrl.host;
-        const hostname = hostHeader.split(':')[0];
-        const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
-        const isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
+        const publicBaseUrl = process.env.GUACAMOLE_PROXY_PUBLIC_URL?.replace(/\/+$/, '');
+        let isolatedUrl: string;
+
+        if (publicBaseUrl) {
+            isolatedUrl = `${publicBaseUrl}/console/guac?session=${encodeURIComponent(sessionId)}`;
+        } else {
+            const requestUrl = new URL(request.url);
+            const forwardedProto = request.headers.get('x-forwarded-proto');
+            const forwardedHost = request.headers.get('x-forwarded-host');
+            const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
+            const hostHeader = forwardedHost || request.headers.get('host') || requestUrl.host;
+            const normalizedHost = hostHeader.replace(/\/+$/, '');
+            const isLocalHost =
+                normalizedHost.startsWith('localhost') ||
+                normalizedHost.startsWith('127.0.0.1');
+
+            if (isLocalHost) {
+                const hostname = normalizedHost.split(':')[0];
+                const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
+                isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
+            } else {
+                isolatedUrl = `${appProtocol}://${normalizedHost}/guac-console/console/guac?session=${encodeURIComponent(sessionId)}`;
+            }
+        }
 
         return NextResponse.json({ sessionId, isolatedUrl });
 
