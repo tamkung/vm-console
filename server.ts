@@ -41,6 +41,20 @@ app.prepare().then(() => {
             return;
         }
 
+        if (parsedUrl.pathname?.startsWith('/api/proxy')) {
+            // @ts-ignore
+            proxy(req, res, (err: unknown) => {
+                if (err) {
+                    console.error('Proxmox proxy request failed:', err);
+                    if (!res.headersSent) {
+                        res.statusCode = 502;
+                        res.end('Bad gateway');
+                    }
+                }
+            });
+            return;
+        }
+
         // Let Next.js handle all other requests
         handle(req, res, parsedUrl);
     });
@@ -51,6 +65,7 @@ app.prepare().then(() => {
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
         secure: false, // Ignore self-signed certs
+        xfwd: true,   // Add x-forwarded-for headers
         proxyTimeout: 0, // Disable timeout to prevent frequent disconnects
         timeout: 0,
         pathRewrite: {
@@ -66,9 +81,17 @@ app.prepare().then(() => {
         },
         onProxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
             // Proxmox strictly checks the Origin header for WebSocket connections
-            if (options.target && options.target.href) {
-                proxyReq.setHeader('Origin', options.target.href.replace(/\/$/, ''));
+            if (options.target && typeof options.target !== 'string') {
+                const targetUrl = (options.target as any).href || options.target;
+                if (targetUrl) {
+                    proxyReq.setHeader('Origin', targetUrl.toString().replace(/\/$/, ''));
+                }
             }
+            
+            // CRITICAL: Strip Sec-WebSocket-Extensions to prevent "Invalid frame header" errors
+            // Some proxies or Proxmox versions don't handle compression correctly over the proxy
+            proxyReq.removeHeader('Sec-WebSocket-Extensions');
+            
             console.log('WebSocket Connection Attempt:', req.url);
         },
         onError: (err: any, req: any, res: any) => {
