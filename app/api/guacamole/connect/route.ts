@@ -202,29 +202,36 @@ export async function POST(request: NextRequest) {
             expiresAt: Date.now() + sessionTtlMs
         });
 
-        const publicBaseUrl = process.env.GUACAMOLE_PROXY_PUBLIC_URL?.replace(/\/+$/, '');
         let isolatedUrl: string;
 
-        if (publicBaseUrl) {
-            isolatedUrl = `${publicBaseUrl}/console/guac?session=${encodeURIComponent(sessionId)}`;
-        } else {
-            const requestUrl = new URL(request.url);
-            const forwardedProto = request.headers.get('x-forwarded-proto');
-            const forwardedHost = request.headers.get('x-forwarded-host');
-            const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
-            const hostHeader = forwardedHost || request.headers.get('host') || requestUrl.host;
-            const normalizedHost = hostHeader.replace(/\/+$/, '');
-            const isLocalHost =
-                normalizedHost.startsWith('localhost') ||
-                normalizedHost.startsWith('127.0.0.1');
+        const requestUrl = new URL(request.url);
+        const forwardedProto = request.headers.get('x-forwarded-proto');
+        const forwardedHost = request.headers.get('x-forwarded-host');
+        const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
+        const hostHeader = forwardedHost || request.headers.get('host') || requestUrl.host;
+        const normalizedHost = hostHeader.replace(/\/+$/, '');
+        const isLocalHost =
+            normalizedHost.startsWith('localhost') ||
+            normalizedHost.startsWith('127.0.0.1');
 
-            if (isLocalHost) {
-                const hostname = normalizedHost.split(':')[0];
-                const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
-                isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
-            } else {
-                isolatedUrl = `${appProtocol}://${normalizedHost}/guac-console/console/guac?session=${encodeURIComponent(sessionId)}`;
+        if (isLocalHost) {
+            const hostname = normalizedHost.split(':')[0];
+            const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
+            isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
+        } else {
+            // Extract path prefix from GUACAMOLE_PROXY_PUBLIC_URL, or default to /guac-console
+            // Always use the request host so domain access stays on domain, IP access stays on IP
+            let guacPathPrefix = '/guac-console';
+            const publicBaseUrl = process.env.GUACAMOLE_PROXY_PUBLIC_URL?.replace(/\/+$/, '');
+            if (publicBaseUrl) {
+                try {
+                    guacPathPrefix = new URL(publicBaseUrl).pathname.replace(/\/+$/, '');
+                } catch {
+                    // If not a full URL, treat it as a path prefix
+                    guacPathPrefix = publicBaseUrl.replace(/^https?:\/\/[^/]*/, '').replace(/\/+$/, '') || '/guac-console';
+                }
             }
+            isolatedUrl = `${appProtocol}://${normalizedHost}${guacPathPrefix}/console/guac?session=${encodeURIComponent(sessionId)}`;
         }
 
         return NextResponse.json({ sessionId, isolatedUrl });
