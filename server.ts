@@ -35,8 +35,10 @@ app.prepare().then(() => {
         ws: true,
         secure: false,
         pathRewrite: (path: string) => path.replace(new RegExp(`^${GUACAMOLE_PROXY_PREFIX}`), '/guacamole'),
-        onError: (err: any) => {
-            console.error('Guacamole Proxy Error:', err);
+        on: {
+            error: (err: any) => {
+                console.error('Guacamole Proxy Error:', err);
+            }
         }
     } as any);
 
@@ -89,27 +91,29 @@ app.prepare().then(() => {
         router: (req: any) => {
             return resolveProxyTarget(req);
         },
-        onProxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
-            const targetUrl = resolveProxyTarget(req) || options.target;
-            if (targetUrl) {
-                proxyReq.setHeader('Origin', targetUrl.toString().replace(/\/$/, ''));
+        on: {
+            proxyReqWs: (proxyReq: any, req: any, socket: any, options: any, head: any) => {
+                const targetUrl = resolveProxyTarget(req) || options.target;
+                if (targetUrl) {
+                    proxyReq.setHeader('Origin', targetUrl.toString().replace(/\/$/, ''));
+                }
+
+                const cookieHeader = req.headers?.cookie || '';
+                const pveAuthCookie = getCookieValue(cookieHeader, 'PVEAuthCookie');
+                if (pveAuthCookie) {
+                    proxyReq.setHeader('Cookie', `PVEAuthCookie=${encodeURIComponent(pveAuthCookie)}`);
+                }
+
+                proxyReq.removeHeader('Sec-WebSocket-Extensions');
+
+                console.log('WebSocket Connection Attempt:', req.url, {
+                    target: targetUrl,
+                    hasAuthCookie: Boolean(pveAuthCookie),
+                });
+            },
+            error: (err: any, req: any, res: any) => {
+                console.error('Proxy Error:', err);
             }
-
-            const cookieHeader = req.headers?.cookie || '';
-            const pveAuthCookie = getCookieValue(cookieHeader, 'PVEAuthCookie');
-            if (pveAuthCookie) {
-                proxyReq.setHeader('Cookie', `PVEAuthCookie=${encodeURIComponent(pveAuthCookie)}`);
-            }
-
-            proxyReq.removeHeader('Sec-WebSocket-Extensions');
-
-            console.log('WebSocket Connection Attempt:', req.url, {
-                target: targetUrl,
-                hasAuthCookie: Boolean(pveAuthCookie),
-            });
-        },
-        onError: (err: any, req: any, res: any) => {
-            console.error('Proxy Error:', err);
         }
     } as any);
 
