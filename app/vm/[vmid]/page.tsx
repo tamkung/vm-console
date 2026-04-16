@@ -241,7 +241,7 @@ export default function VmDetailPage() {
                                 Console
                             </button>
                         </>
-                    ) : (
+                    ) : vmConfig?.template !== 1 && (
                         <button onClick={() => handleAction('start')} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-semibold">Start</button>
                     )}
                 </div>
