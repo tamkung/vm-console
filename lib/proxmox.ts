@@ -196,10 +196,10 @@ export class ProxmoxClient {
         });
     }
 
-    async getTermProxy(node: string, vmid: number, ticket: string, csrfToken: string): Promise<VncProxyResponse> {
+    async getTermProxy(node: string, vmid: number, ticket: string, csrfToken: string, type: 'qemu' | 'lxc' = 'lxc'): Promise<VncProxyResponse> {
         const params = new URLSearchParams();
 
-        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/lxc/${vmid}/termproxy`, {
+        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/${type}/${vmid}/termproxy`, {
             method: 'POST',
             body: params,
             headers: {
@@ -310,11 +310,12 @@ export class ProxmoxClient {
         return parseInt(res.data, 10);
     }
 
-    async cloneVm(node: string, vmid: number, params: { newid: number, name?: string, full?: number }, ticket: string, csrfToken: string): Promise<string> {
+    async cloneVm(node: string, vmid: number, params: { newid: number, name?: string, full?: number, target?: string }, ticket: string, csrfToken: string): Promise<string> {
         const body = new URLSearchParams();
         body.append('newid', params.newid.toString());
         if (params.name) body.append('name', params.name);
         if (params.full !== undefined) body.append('full', params.full.toString());
+        if (params.target) body.append('target', params.target);
 
         const res = await this.fetch<{ data: string }>(`/api2/json/nodes/${node}/qemu/${vmid}/clone`, {
             method: 'POST',

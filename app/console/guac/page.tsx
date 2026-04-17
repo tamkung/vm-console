@@ -13,6 +13,7 @@ function GuacConsoleContent() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
     const [showToolbar, setShowToolbar] = useState(true); // Toggle-based, default visible
+    const [isDragging, setIsDragging] = useState(false);
 
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const proxyInputRef = useRef<HTMLInputElement>(null);
@@ -63,11 +64,51 @@ function GuacConsoleContent() {
     // Auto-focus when iframe loads or src changes
     useEffect(() => {
         if (iframeSrc) {
+            console.log('[GuacConsole] Iframe source set to:', iframeSrc);
             // Small delay to allow iframe to render
             const timer = setTimeout(focusIframe, 500);
             return () => clearTimeout(timer);
         }
     }, [iframeSrc]);
+
+    // Debugging: catch page reloads
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            console.log('[GuacConsole] Page is being unloaded. Session:', sessionId);
+        };
+
+        const handleDragOver = (e: DragEvent) => {
+            e.preventDefault();
+            setIsDragging(true);
+        };
+
+        const handleDragLeave = (e: DragEvent) => {
+            e.preventDefault();
+            // Only hide if we actually left the window
+            if (e.relatedTarget === null) {
+                setIsDragging(false);
+            }
+        };
+
+        const handleDrop = (e: DragEvent) => {
+            e.preventDefault();
+            setIsDragging(false);
+            // We let the iframe handle the actual drop
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        window.addEventListener('dragover', handleDragOver);
+        window.addEventListener('dragleave', handleDragLeave);
+        window.addEventListener('drop', handleDrop);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('dragover', handleDragOver);
+            window.removeEventListener('dragleave', handleDragLeave);
+            window.removeEventListener('drop', handleDrop);
+        };
+    }, [sessionId]);
+
 
     const toggleToolbar = () => {
         setShowToolbar(prev => !prev);
@@ -150,6 +191,14 @@ function GuacConsoleContent() {
                             </button>
                         )}
                         <span className="text-gray-400 text-xs hidden md:inline">Guacamole Remote Console</span>
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-900/30 border border-emerald-500/20" title="File Transfer is enabled. Drag and drop files to upload.">
+                            <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                FILE TRANSFER
+                            </span>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         {/* Show Keyboard Button */}
@@ -207,6 +256,23 @@ function GuacConsoleContent() {
                     />
                 )}
             </div>
+
+            {/* Drag and Drop Overlay */}
+            {isDragging && (
+                <div className="fixed inset-0 z-[100] bg-emerald-500/10 backdrop-blur-[2px] border-4 border-dashed border-emerald-500/50 flex flex-col items-center justify-center pointer-events-none">
+                    <div className="bg-gray-900/90 p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 scale-110 transition-transform">
+                        <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-400 animate-bounce">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                        </div>
+                        <div className="text-center">
+                            <h3 className="text-xl font-bold text-white mb-1">Drop Files to Upload</h3>
+                            <p className="text-gray-400 text-sm">Release to start transferring to session</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Proxy Input for Virtual Keyboard Support on Tablets */}
             <input 

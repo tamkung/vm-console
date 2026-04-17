@@ -1,6 +1,8 @@
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
+import http from 'http';
+import https from 'https';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { shareStore } from './lib/store';
 import { getGuacamoleServerBaseUrl, GUACAMOLE_PROXY_PREFIX } from './lib/guacamole';
@@ -13,6 +15,23 @@ const handle = app.getRequestHandler();
 
 // Allow self-signed certs for the proxy
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// Configure Keep-Alive agents for stabilized proxy connections
+const agentOptions = {
+    keepAlive: true,
+    keepAliveMsecs: 10000, // Send TCP Keep-Alive every 10s
+    maxSockets: 256,
+    maxFreeSockets: 256,
+    timeout: 60000,
+};
+
+const httpAgent = new http.Agent(agentOptions);
+const httpsAgent = new https.Agent(agentOptions);
+
+const getAgent = (url: string | undefined) => {
+    return url?.startsWith('https') ? httpsAgent : httpAgent;
+};
+
 
 app.prepare().then(() => {
     const guacProxyPort = Number(process.env.GUACAMOLE_PROXY_PORT || 3001);
@@ -34,10 +53,14 @@ app.prepare().then(() => {
         changeOrigin: true,
         ws: true,
         secure: false,
+        xfwd: true,
+        agent: getAgent(process.env.GUACAMOLE_URL),
+        proxyTimeout: 300000, // 5 minutes
+        timeout: 300000,
         pathRewrite: (path: string) => path.replace(new RegExp(`^${GUACAMOLE_PROXY_PREFIX}`), '/guacamole'),
         on: {
-            error: (err: any) => {
-                console.error('Guacamole Proxy Error:', err);
+            error: (err: any, req: any) => {
+                console.error(`[Guacamole Proxy Error] ${req.url}:`, err.message || err);
             }
         }
     } as any);
@@ -81,10 +104,11 @@ app.prepare().then(() => {
         target: process.env.PROXMOX_URL,
         changeOrigin: true,
         ws: true,
-        secure: false, // Ignore self-signed certs
-        xfwd: true,   // Add x-forwarded-for headers
-        proxyTimeout: 0, // Disable timeout to prevent frequent disconnects
-        timeout: 0,
+        secure: false,
+        xfwd: true,
+        agent: getAgent(process.env.PROXMOX_URL),
+        proxyTimeout: 300000, // 5 minutes
+        timeout: 300000,
         pathRewrite: {
             '^/api/proxy': '', // Remove /api/proxy prefix
         },
@@ -111,8 +135,8 @@ app.prepare().then(() => {
                     hasAuthCookie: Boolean(pveAuthCookie),
                 });
             },
-            error: (err: any, req: any, res: any) => {
-                console.error('Proxy Error:', err);
+            error: (err: any, req: any) => {
+                console.error(`[Proxmox Proxy Error] ${req.url}:`, err.message || err);
             }
         }
     } as any);
@@ -137,6 +161,7 @@ app.prepare().then(() => {
         const isGuacPage =
             pathname === '/console/guac' ||
             pathname.startsWith('/api/guacamole/session') ||
+            pathname.startsWith(GUACAMOLE_PROXY_PREFIX) ||
             pathname.startsWith('/_next/') ||
             pathname === '/favicon.ico';
 

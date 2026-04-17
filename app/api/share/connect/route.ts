@@ -4,7 +4,7 @@ import { ProxmoxClient } from '@/lib/proxmox';
 
 export async function POST(request: NextRequest) {
     try {
-        const { token } = await request.json();
+        const { token, console: consoleReq } = await request.json();
 
         if (!token) {
             return NextResponse.json({ error: 'Missing token' }, { status: 400 });
@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
         // Get VNC or Term Ticket using this new session
         // Validates that this user actually has permission
         let vncData;
-        if (type === 'lxc') {
-            vncData = await client.getTermProxy(node, vmid, ticket, auth.data.CSRFPreventionToken);
+        if (type === 'lxc' || consoleReq === 'xterm') {
+            vncData = await client.getTermProxy(node, vmid, ticket, auth.data.CSRFPreventionToken, type as 'qemu' | 'lxc');
         } else {
             vncData = await client.getVncProxy(node, vmid, ticket, auth.data.CSRFPreventionToken, type as 'qemu' | 'lxc');
         }

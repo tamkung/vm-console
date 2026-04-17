@@ -17,14 +17,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Configuration error' }, { status: 500 });
         }
 
-        const { node, vmid, newid, name, full, additionalConfig } = await request.json();
+        const { node, vmid, newid, name, full, targetNode, additionalConfig } = await request.json();
 
         if (!node || !vmid || !newid) {
             return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
         }
 
         const client = new ProxmoxClient(url);
-        const upid = await client.cloneVm(node, vmid, { newid, name, full: full ? 1 : 0 }, ticket, csrfToken);
+        const upid = await client.cloneVm(node, vmid, { 
+            newid, 
+            name, 
+            full: full ? 1 : 0,
+            target: targetNode
+        }, ticket, csrfToken);
 
         return NextResponse.json({ 
             success: true, 

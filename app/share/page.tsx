@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 // RFB import moved to useEffect to avoid SSR window error
 
 // KeySym constants
@@ -12,8 +12,10 @@ const KEY_ALT = 0xffe9;
 const KEY_WIN = 0xffeb;
 
 function SharePageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams?.get('token');
+  const consoleMode = searchParams?.get('console') || 'vnc';
   
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any | null>(null);
@@ -24,6 +26,9 @@ function SharePageContent() {
   const [error, setError] = useState('');
   const [vmData, setVmData] = useState<{ vmid: number, node: string } | null>(null);
   const [vmType, setVmType] = useState<string>('qemu');
+  const [isTerminalUsable, setIsTerminalUsable] = useState(false);
+
+  const isXterm = consoleMode === 'xterm' || vmType === 'lxc';
 
   // Toolbar State
   const [showToolbar, setShowToolbar] = useState(true);
@@ -66,7 +71,7 @@ function SharePageContent() {
             const res = await fetch('/api/share/connect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token })
+                body: JSON.stringify({ token, console: consoleMode })
             });
 
             if (!res.ok) {
@@ -81,14 +86,13 @@ function SharePageContent() {
             setVmData({ vmid, node });
             setVmType(type);
             
-            
             // Set Timeout for Session Expiration & Timer UI
             if (expiresAt) {
                  const handleExpiration = async () => {
                      // 1. Disconnect VNC/Term
                      if (rfbRef.current) {
                          try { 
-                             if (type === 'lxc' && rfbRef.current.dispose) {
+                             if (isXterm && rfbRef.current.dispose) {
                                  rfbRef.current.dispose();
                              } else if (rfbRef.current.disconnect) {
                                  rfbRef.current.disconnect(); 
@@ -140,7 +144,6 @@ function SharePageContent() {
                      // Already expired logic handled inside updateTimer -> handleExpiration
                  } else {
                      // Update UI every second
-
                      const timerInterval = setInterval(() => {
                          if (!updateTimer()) {
                              clearInterval(timerInterval);
@@ -168,19 +171,15 @@ function SharePageContent() {
                          }
                      }, 5000);
                      intervalsRef.current.push(statusInterval);
-
-                     
-                     // Cleanup handled by useEffect return via intervalsRef
                  }
-                 }
-
+            }
 
             // 2. Connect to Secure Proxy
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.host;
             let path = '';
 
-            if (type === 'lxc') {
+            if (isXterm) {
                 // XTERM.JS Logic
                 const { Terminal } = await import('xterm');
                 const { FitAddon } = await import('xterm-addon-fit');
@@ -193,6 +192,7 @@ function SharePageContent() {
                     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
                     theme: {
                         background: '#000000',
+                        foreground: '#ffffff',
                     }
                 });
                 
@@ -208,7 +208,8 @@ function SharePageContent() {
                     window.addEventListener('resize', () => fitAddon.fit());
                 }
 
-                path = `api/proxy/api2/json/nodes/${node}/lxc/${vmid}/vncwebsocket?port=${port}&vncticket=${encodeURIComponent(ticket)}`;
+                const nodePath = type === 'lxc' ? 'lxc' : 'qemu';
+                path = `api/proxy/api2/json/nodes/${node}/${nodePath}/${vmid}/vncwebsocket?port=${port}&vncticket=${encodeURIComponent(ticket)}`;
                 const url = `${protocol}//${host}/${path}`;
                 
                 const socket = new WebSocket(url);
@@ -242,12 +243,24 @@ function SharePageContent() {
                     if (event.data instanceof ArrayBuffer) {
                          const u8 = new Uint8Array(event.data);
                          term.write(u8);
+                         
+                         // Detect prompt or significant activity
+                         if (!isTerminalUsable && u8.length > 0) {
+                             const text = new TextDecoder().decode(u8);
+                             // If it contains prompt chars or is beyond greeting
+                             if (text.includes('$ ') || text.includes('# ') || text.includes('> ') || text.length > 50) {
+                                 setIsTerminalUsable(true);
+                             }
+                         }
                     } else {
                          term.write(event.data);
+                         if (!isTerminalUsable && event.data.length > 50) {
+                            setIsTerminalUsable(true);
+                         }
                     }
                 };
 
-                socket.onclose = (event) => {
+                socket.onclose = () => {
                     setStatus('disconnected');
                 };
                 socket.onerror = (err) => {
@@ -257,6 +270,7 @@ function SharePageContent() {
                 };
 
                 term.onData((data) => {
+                    setIsTerminalUsable(true); // User interaction means it's usable
                     if (socket.readyState === WebSocket.OPEN) {
                         // Protocol: "0:length:data"
                         // We must encode the length of the string
@@ -353,15 +367,28 @@ function SharePageContent() {
 
     return () => {
         if (rfbRef.current) {
-            try { rfbRef.current.disconnect(); } catch (_) {}
+            try { 
+                if (isXterm && rfbRef.current.dispose) {
+                    rfbRef.current.dispose();
+                } else if (rfbRef.current.disconnect) {
+                    rfbRef.current.disconnect(); 
+                }
+            } catch (_) {}
         }
         intervalsRef.current.forEach(clearInterval);
         intervalsRef.current = [];
     };
-  }, [token]);
+  }, [token, consoleMode]); // Reload on consoleMode change
 
   // Toolbar Helpers
   const toggleToolbar = () => setShowToolbar(prev => !prev);
+
+  const toggleConsoleMode = () => {
+    const newMode = consoleMode === 'xterm' ? 'vnc' : 'xterm';
+    const params = new URLSearchParams(searchParams?.toString());
+    params.set('console', newMode);
+    router.push(`/share?${params.toString()}`);
+  };
   
   // Trigger resize when toolbar visibility changes to fill the gap
   useEffect(() => {
@@ -437,6 +464,14 @@ function SharePageContent() {
             <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${status === 'connected' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
                 {status}
             </span>
+            {isXterm && !isTerminalUsable && (
+                <span 
+                    className="text-xs bg-yellow-900/50 text-yellow-200 px-2 py-0.5 rounded border border-yellow-700/50 flex items-center gap-1 cursor-help shrink-0"
+                    title="Serial Console supports only one active user at a time. Connecting another session will likely disconnect the current one."
+                >
+                    ⚠️
+                </span>
+            )}
              {/* Countdown Timer */}
              {timeLeftFormatted && (
                  <span className="text-xs font-mono text-yellow-500 border border-yellow-700/50 bg-yellow-900/20 px-2 py-0.5 rounded flex items-center shrink-0">
@@ -466,7 +501,7 @@ function SharePageContent() {
              >
                 Alt
              </button>
-             {vmType !== 'lxc' && (
+             {!isXterm && vmType !== 'lxc' && (
               <button 
                 onClick={() => sendKey(KEY_WIN)} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
@@ -491,9 +526,21 @@ function SharePageContent() {
              </button>
              {vmType !== 'lxc' && (
               <>
-              <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
+              <button 
+                onClick={sendCtrlAltDel} 
+                className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm border border-blue-500 font-bold whitespace-nowrap shrink-0 shadow-sm"
+              >
                 Ctrl-Alt-Del
               </button>
+              {vmType === 'qemu' && (
+                <button 
+                  onClick={toggleConsoleMode}
+                  className="bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded text-sm shrink-0 border border-purple-500 font-bold text-white shadow-lg"
+                  title={consoleMode === 'xterm' ? "Switch to VNC Console" : "Switch to Serial Console (xterm)"}
+                >
+                  {consoleMode === 'xterm' ? "📺 Use VNC" : "⌨️ Use Serial"}
+                </button>
+              )}
               <button 
                 onClick={() => {
                     const canvas = screenRef.current?.querySelector('canvas') as HTMLCanvasElement;
@@ -532,7 +579,7 @@ function SharePageContent() {
             >
                 📋 Paste
             </button>
-            {vmType !== 'lxc' && (
+            {!isXterm && vmType !== 'lxc' && (
             <button 
                 onClick={toggleFullScreen} 
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm border border-gray-600 shrink-0"
@@ -560,7 +607,7 @@ function SharePageContent() {
          </div>
       )}
       
-      {/* VNC Screen */}
+      {/* VNC/Xterm Screen */}
       <div className={`flex-1 overflow-hidden relative flex items-center justify-center bg-gray-900 transition-all duration-300 ease-in-out ${showToolbar ? 'pt-12' : 'pt-0'}`}>
         <div ref={screenRef} className="w-full h-full" />
       </div>

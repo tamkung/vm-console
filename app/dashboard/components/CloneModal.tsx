@@ -4,6 +4,31 @@ import { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
 import { ProxmoxVm } from '@/lib/proxmox';
 
+const isValidIp = (ip: string) => {
+    const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+    return ipv4Regex.test(ip) || ipv6Regex.test(ip);
+};
+
+const isValidCidr = (cidr: string) => {
+    if (cidr.toLowerCase() === 'dhcp') return true;
+    const parts = cidr.split('/');
+    if (parts.length === 1) return isValidIp(parts[0]);
+    if (parts.length !== 2) return false;
+    const ip = parts[0];
+    const mask = parseInt(parts[1]);
+    if (isNaN(mask)) return false;
+    const isIpv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ip);
+    if (isIpv4) return mask >= 0 && mask <= 32 && isValidIp(ip);
+    return mask >= 0 && mask <= 128 && isValidIp(ip);
+};
+
+const isValidDnsList = (dns: string) => {
+    if (!dns) return true;
+    const servers = dns.split(/[,\s]+/).filter(Boolean);
+    return servers.every(isValidIp);
+};
+
 interface CloneModalProps {
     onClose: () => void;
     onSuccess: () => void;
@@ -23,6 +48,11 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
     const [cpuCores, setCpuCores] = useState<number | ''>('');
     const [ramMb, setRamMb] = useState<number | ''>('');
     const [diskAddGb, setDiskAddGb] = useState<number | ''>('');
+    
+    // Nodes
+    const [targetNode, setTargetNode] = useState('');
+    const [nodes, setNodes] = useState<string[]>([]);
+    const [fetchingNodes, setFetchingNodes] = useState(false);
 
     // Cloud-Init settings
     const [ciUser, setCiUser] = useState('');
@@ -43,11 +73,29 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
 
     useEffect(() => {
         fetchNextId();
+        fetchNodes();
     }, []);
+
+    const fetchNodes = async () => {
+        setFetchingNodes(true);
+        try {
+            const res = await fetch('/api/nodes');
+            if (res.ok) {
+                const data = await res.json();
+                setNodes(data.nodes || []);
+            }
+        } catch (error) {
+            console.error("Failed to fetch nodes", error);
+        } finally {
+            setFetchingNodes(false);
+        }
+    };
 
     useEffect(() => {
         if (selectedTemplate) {
-            fetchBridges(selectedTemplate.node);
+            if (!targetNode) {
+                setTargetNode(selectedTemplate.node);
+            }
             
             // Set default specs based on template
             setCpuCores(selectedTemplate.cpus || 1);
@@ -55,6 +103,12 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
             setDiskAddGb('');
         }
     }, [selectedTemplate]);
+
+    useEffect(() => {
+        if (targetNode) {
+            fetchBridges(targetNode);
+        }
+    }, [targetNode]);
 
     const fetchNextId = async () => {
         setFetchingNextId(true);
@@ -78,9 +132,6 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
             if (res.ok) {
                 const data = await res.json();
                 setBridges(data.network || []);
-                if (data.network?.length > 0 && !selectedBridge) {
-                    setSelectedBridge(data.network[0].iface);
-                }
             }
         } catch (error) {
             console.error("Failed to fetch bridges", error);
@@ -115,6 +166,29 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
 
     const handleClone = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validation Results
+        const ipError = ipAddr && !isValidCidr(ipAddr);
+        const gwError = gateway && !isValidIp(gateway);
+        const dnsError = dns && !isValidDnsList(dns);
+
+        if (ipError || gwError || dnsError) {
+            setActiveTab('cloudinit');
+            let errorMsg = 'Please fix the following issues:';
+            if (ipError) errorMsg += '\n- Invalid IP or CIDR (e.g. 192.168.1.10/24)';
+            if (gwError) errorMsg += '\n- Invalid Gateway IP address';
+            if (dnsError) errorMsg += '\n- Invalid DNS server IP(s)';
+
+            Swal.fire({
+                title: 'Validation Error',
+                text: errorMsg,
+                icon: 'error',
+                background: '#1f2937',
+                color: '#fff'
+            });
+            return;
+        }
+
         if (!selectedTemplate || !newVmid) return;
 
         setLoading(true);
@@ -130,9 +204,12 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
         // Cloud-Init config
         if (ciUser) config['ciuser'] = ciUser;
         if (ciPassword) config['cipassword'] = ciPassword;
-        if (sshKey) config['sshkeys'] = encodeURIComponent(sshKey);
+        if (sshKey) config['sshkeys'] = sshKey;
         
-        if (ipAddr) config['ipconfig0'] = `ip=${ipAddr}${gateway ? `,gw=${gateway}` : ''}`;
+        if (ipAddr) {
+            const formattedIp = ipAddr.includes('/') ? ipAddr : `${ipAddr}/24`;
+            config['ipconfig0'] = `ip=${formattedIp}${gateway ? `,gw=${gateway}` : ''}`;
+        }
         if (dns) config['nameserver'] = dns;
 
         // Network Config
@@ -152,7 +229,8 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                     vmid: selectedTemplate.vmid,
                     newid: newVmid,
                     name: newName || undefined,
-                    full: isFullClone
+                    full: isFullClone,
+                    targetNode: targetNode !== selectedTemplate.node ? targetNode : undefined
                 })
             });
 
@@ -179,7 +257,7 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    node: selectedTemplate.node,
+                    node: targetNode,
                     vmid: newVmid,
                     config: config,
                     resizeDisk: resizeDisk
@@ -299,6 +377,27 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                 </div>
 
                                 <div>
+                                    <label className="block text-sm font-medium mb-1 text-gray-300">Target Node</label>
+                                    <select 
+                                        value={targetNode}
+                                        onChange={(e) => setTargetNode(e.target.value)}
+                                        className="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-blue-500 text-white"
+                                        required
+                                        disabled={fetchingNodes}
+                                    >
+                                        {nodes.length > 0 ? (
+                                            nodes.map(n => (
+                                                <option key={n} value={n}>
+                                                    {n} {selectedTemplate?.node === n ? '(local)' : ''}
+                                                </option>
+                                            ))
+                                        ) : (
+                                            <option value={selectedTemplate?.node}>{selectedTemplate?.node}</option>
+                                        )}
+                                    </select>
+                                </div>
+
+                                <div>
                                     <label className="block text-sm font-medium mb-1 text-gray-300">New VM Name</label>
                                     <input
                                         type="text"
@@ -316,7 +415,7 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                             type="number"
                                             value={newVmid}
                                             onChange={(e) => setNewVmid(e.target.value === '' ? '' : parseInt(e.target.value))}
-                                            className="flex-1 bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-blue-500 text-white"
+                                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-blue-500 text-white"
                                             required
                                         />
                                         <button 
@@ -437,9 +536,10 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                             type="text"
                                             value={ipAddr}
                                             onChange={(e) => setIpAddr(e.target.value)}
-                                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white"
-                                            placeholder="192.168.1.10/24"
+                                            className={`w-full bg-gray-900 border ${ipAddr && !isValidCidr(ipAddr) ? 'border-red-500' : 'border-gray-600'} rounded p-2 text-white transition-colors`}
+                                            placeholder="192.168.1.10/24 or dhcp"
                                         />
+                                        {ipAddr && !isValidCidr(ipAddr) && <p className="text-[10px] text-red-500 mt-1">Invalid format</p>}
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium mb-1 text-gray-300">Gateway</label>
@@ -447,9 +547,10 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                             type="text"
                                             value={gateway}
                                             onChange={(e) => setGateway(e.target.value)}
-                                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white"
+                                            className={`w-full bg-gray-900 border ${gateway && !isValidIp(gateway) ? 'border-red-500' : 'border-gray-600'} rounded p-2 text-white transition-colors`}
                                             placeholder="192.168.1.1"
                                         />
+                                        {gateway && !isValidIp(gateway) && <p className="text-[10px] text-red-500 mt-1">Invalid IP</p>}
                                     </div>
                                 </div>
 
@@ -459,9 +560,10 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                         type="text"
                                         value={dns}
                                         onChange={(e) => setDns(e.target.value)}
-                                        className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white"
-                                        placeholder="8.8.8.8,1.1.1.1"
+                                        className={`w-full bg-gray-900 border ${dns && !isValidDnsList(dns) ? 'border-red-500' : 'border-gray-600'} rounded p-2 text-white transition-colors`}
+                                        placeholder="8.8.8.8, 1.1.1.1"
                                     />
+                                    {dns && !isValidDnsList(dns) && <p className="text-[10px] text-red-500 mt-1">Invalid DNS list</p>}
                                 </div>
                             </div>
                         )}
@@ -486,7 +588,7 @@ export default function CloneModal({ onClose, onSuccess, templates }: CloneModal
                                         </select>
                                         <button 
                                             type="button"
-                                            onClick={() => selectedTemplate && fetchBridges(selectedTemplate.node)}
+                                            onClick={() => targetNode && fetchBridges(targetNode)}
                                             className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded border border-gray-600"
                                             disabled={fetchingBridges}
                                         >
