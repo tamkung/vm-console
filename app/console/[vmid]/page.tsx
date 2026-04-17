@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { useSessionRefresh } from '@/hooks/useSessionRefresh';
+import { Suspense } from 'react';
 
 // Dynamic import used inside component to avoid SSR window error
 
@@ -21,7 +22,7 @@ interface RFBInstance {
   sendText?: (text: string) => void;
 }
 
-export default function ConsolePage() {
+function ConsoleContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = useParams();
@@ -664,4 +665,16 @@ export default function ConsolePage() {
 
     </div>
   );
+}
+
+export default function ConsolePage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+                <div className="animate-spin h-10 w-10 text-blue-400 border-4 border-t-transparent border-blue-400 rounded-full"></div>
+            </div>
+        }>
+            <ConsoleContent />
+        </Suspense>
+    );
 }
