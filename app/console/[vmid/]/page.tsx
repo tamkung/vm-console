@@ -38,7 +38,6 @@ export default function ConsolePage() {
   
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState('');
-  const [isTerminalUsable, setIsTerminalUsable] = useState(false);
   
   // Key States for Sticky Keys
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -207,20 +206,8 @@ export default function ConsolePage() {
                     if (event.data instanceof ArrayBuffer) {
                          const u8 = new Uint8Array(event.data);
                          term.write(u8);
-                         
-                         // Detect prompt or significant activity
-                         if (!isTerminalUsable && u8.length > 0) {
-                             const text = new TextDecoder().decode(u8);
-                             // If it contains prompt chars or is beyond greeting
-                             if (text.includes('$ ') || text.includes('# ') || text.includes('> ') || text.length > 50) {
-                                 setIsTerminalUsable(true);
-                             }
-                         }
                     } else {
                          term.write(event.data);
-                         if (!isTerminalUsable && event.data.length > 50) {
-                            setIsTerminalUsable(true);
-                         }
                     }
                 };
 
@@ -234,7 +221,6 @@ export default function ConsolePage() {
                 };
 
                 term.onData((inputData) => {
-                    setIsTerminalUsable(true); // User interaction means it's usable
                     if (socket.readyState === WebSocket.OPEN) {
                         // Protocol: "0:length:data"
                         const msg = `0:${inputData.length}:${inputData}`;
@@ -448,13 +434,14 @@ export default function ConsolePage() {
             <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${status === 'connected' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
                 {status}
             </span>
-            {isXterm && !isTerminalUsable && (
-                <span 
-                    className="text-xs bg-yellow-900/50 text-yellow-200 px-2 py-0.5 rounded border border-yellow-700/50 flex items-center gap-1 cursor-help shrink-0"
-                    title="Serial Console supports only one active user at a time. Connecting another session will likely disconnect the current one."
+            {type === 'qemu' && (
+                <button 
+                  onClick={toggleConsoleMode}
+                  className="bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded text-sm shrink-0 border border-purple-500 font-bold text-white shadow-lg ml-2"
+                  title={consoleMode === 'xterm' ? "Switch to VNC Console" : "Switch to Serial Console (xterm)"}
                 >
-                    ⚠️
-                </span>
+                  {consoleMode === 'xterm' ? "📺 Use VNC" : "⌨️ Use Serial"}
+                </button>
             )}
         </div>
 
@@ -504,22 +491,10 @@ export default function ConsolePage() {
              </button>
              {type !== 'lxc' && (
               <>
-               <button 
-                 onClick={sendCtrlAltDel} 
-                 className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm border border-blue-500 font-bold whitespace-nowrap shrink-0 shadow-sm"
-               >
-                 Ctrl-Alt-Del
-               </button>
-               {type === 'qemu' && (
-                  <button 
-                    onClick={toggleConsoleMode}
-                    className="bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded text-sm shrink-0 border border-purple-500 font-bold text-white shadow-lg"
-                    title={consoleMode === 'xterm' ? "Switch to VNC Console" : "Switch to Serial Console (xterm)"}
-                  >
-                    {consoleMode === 'xterm' ? "📺 Use VNC" : "⌨️ Use Serial"}
-                  </button>
-                )}
-               <button 
+              <button onClick={sendCtrlAltDel} className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm whitespace-nowrap shrink-0">
+                Ctrl-Alt-Del
+              </button>
+              <button 
                 onClick={() => {
                     const canvas = screenRef.current?.querySelector('canvas') as HTMLCanvasElement;
                     if (canvas) {

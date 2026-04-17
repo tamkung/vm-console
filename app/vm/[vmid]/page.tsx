@@ -234,14 +234,22 @@ export default function VmDetailPage() {
                             <button onClick={() => handleAction('shutdown')} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded text-sm font-semibold">Shutdown</button>
                             <button onClick={() => handleAction('reboot')} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-semibold">Reboot</button>
                             <button onClick={() => handleAction('stop')} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded text-sm font-semibold">Force Stop</button>
-                            <button onClick={() => window.location.assign(`/console/${vmid}?node=${node}&type=${type}`)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-semibold flex items-center gap-1">
+                             <button onClick={() => window.location.assign(`/console/${vmid}?node=${node}&type=${type}`)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-semibold flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                 </svg>
                                 Console
                             </button>
+                            {type === 'qemu' && (
+                                <button onClick={() => window.location.assign(`/console/${vmid}?node=${node}&type=${type}&console=xterm`)} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded text-sm font-semibold flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    Serial Console
+                                </button>
+                            )}
                         </>
-                    ) : (
+                    ) : vmConfig?.template !== 1 && (
                         <button onClick={() => handleAction('start')} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-semibold">Start</button>
                     )}
                 </div>

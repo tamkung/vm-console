@@ -126,6 +126,41 @@ export async function POST(request: NextRequest) {
 
             // Enable printing (optional)
             connectionParams['enable-printing'] = 'true';
+        };
+
+        if (password) {
+            connectionParams.password = password;
+        }
+
+        // Protocol-specific parameters
+        if (protocol === 'rdp') {
+            connectionParams['ignore-cert'] = 'true';
+            connectionParams['security'] = 'any';
+
+            // Keyboard layout - use US English server-side for consistent shortcuts
+            // This ensures Ctrl+A/C/V work even when client keyboard is Thai/other language
+            connectionParams['server-layout'] = 'en-us-qwerty';
+
+            // Normalize keyboard input - converts Unicode to scancodes for proper shortcut handling
+            connectionParams['normalize-keyboard'] = 'true';
+
+            // Dynamic resolution (like Windows Admin Center)
+            connectionParams['resize-method'] = 'display-update';
+
+            // Clipboard support
+            connectionParams['enable-clipboard'] = 'true';
+            connectionParams['disable-copy'] = 'false';
+            connectionParams['disable-paste'] = 'false';
+
+            // Better color depth and quality
+            connectionParams['color-depth'] = '32';
+
+            // Enable audio (optional)
+            connectionParams['enable-audio'] = 'true';
+            connectionParams['enable-audio-input'] = 'true';
+
+            // Enable printing (optional)
+            connectionParams['enable-printing'] = 'true';
 
             // Enable drive sharing (optional)
             connectionParams['enable-drive'] = 'true';
@@ -133,18 +168,21 @@ export async function POST(request: NextRequest) {
             connectionParams['drive-path'] = '/tmp/guac-drive';
             connectionParams['create-drive-path'] = 'true';
         } else if (protocol === 'vnc') {
-            // VNC clipboard
+            // VNC clipboard and SFTP support
             connectionParams['enable-clipboard'] = 'true';
+            connectionParams['enable-sftp'] = 'true';
+            connectionParams['sftp-hostname'] = host;
+            connectionParams['sftp-port'] = '22'; // Default SFTP/SSH port
         } else if (protocol === 'ssh') {
-            // SSH specific
+            // SSH specific and SFTP support
             connectionParams['color-scheme'] = 'white-black';
             connectionParams['font-size'] = '12';
+            connectionParams['enable-sftp'] = 'true';
         }
 
         // Create JSON payload for Guacamole
         const connectionName = `${protocol.toUpperCase()}-${host}`;
         const expiresAt = Date.now() + sessionTtlMs;
-
         const payload = {
             username: 'guac_user',
             expires: expiresAt,

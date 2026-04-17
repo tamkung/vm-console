@@ -41,9 +41,23 @@ export async function GET() { // Remove 'request' if unused
 
         const results = await Promise.all(promises);
 
+        // Fetch User Permissions to know if they can clone (VM.Clone)
+        const permissions = await client.getUserPermissions(ticket).catch(() => ({} as Record<string, Record<string, number>>));
+
         // Flatten the array of arrays (results from promises)
-        // results is (ProxmoxVm[] | ProxmoxLxc[])[]
-        const allResources = results.flat().sort((a, b) => a.vmid - b.vmid);
+        const allResources = results.flat().sort((a, b) => a.vmid - b.vmid).map(res => {
+            // Check if user has VM.Clone permission on the specific VM path or globally
+            const hasCloneSourcePerm = permissions['/']?.['VM.Clone']
+                || permissions['/vms']?.['VM.Clone']
+                || permissions[`/vms/${res.vmid}`]?.['VM.Clone'];
+
+            // To clone, the user also needs VM.Allocate on the path where the new VM will be created
+            // Usually this is on / or /vms.
+            const hasAllocatePerm = permissions['/']?.['VM.Allocate']
+                || permissions['/vms']?.['VM.Allocate'];
+
+            return { ...res, canClone: !!(hasCloneSourcePerm && hasAllocatePerm) };
+        });
 
         return NextResponse.json({ vms: allResources });
     } catch (error: unknown) {

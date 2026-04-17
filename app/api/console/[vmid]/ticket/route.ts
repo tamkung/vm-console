@@ -43,9 +43,12 @@ export async function POST(
         // The previous implementation for Share used getTermProxy for LXC.
         // Let's implement similar logic here.
 
+        const consoleType = searchParams.get('console');
+        const isXterm = consoleType === 'xterm' || type === 'lxc';
+
         let vncData;
-        if (type === 'lxc') {
-            vncData = await client.getTermProxy(node, parseInt(vmid), ticket, csrfToken);
+        if (isXterm) {
+            vncData = await client.getTermProxy(node, parseInt(vmid), ticket, csrfToken, type as 'qemu' | 'lxc');
         } else {
             vncData = await client.getVncProxy(node, parseInt(vmid), ticket, csrfToken, type as 'qemu' | 'lxc');
         }

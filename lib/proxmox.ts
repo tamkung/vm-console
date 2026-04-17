@@ -45,6 +45,7 @@ export interface ProxmoxVm {
     mem: number;
     cpu: number;
     type?: 'qemu';
+    template?: number;
 }
 
 export interface ProxmoxNodeListResponse {
@@ -100,18 +101,32 @@ export class ProxmoxClient {
         });
 
         if (!res.ok) {
-            let errorMessage = `Proxmox API error: ${res.status} ${res.statusText}`;
+            let errorMessage = `Proxmox Error (${res.status})`;
             try {
                 const text = await res.text();
                 if (text.trim().startsWith('<')) {
-                    errorMessage += ' (HTML Response)';
-                } else if (text.length > 200) {
-                    errorMessage += ` - ${text.substring(0, 200)}...`;
+                    errorMessage += ': Unexpected HTML response';
                 } else {
-                    errorMessage += ` - ${text}`;
+                    try {
+                        const jsonObj = JSON.parse(text);
+                        // If Proxmox sends a JSON error with a specific message
+                        if (jsonObj && jsonObj.message) {
+                            errorMessage += `: ${jsonObj.message.trim()}`;
+                        } else {
+                            errorMessage += `: ${text}`;
+                        }
+                    } catch (parseError) {
+                        // Not JSON, fallback to raw text
+                        if (text.length > 200) {
+                            errorMessage += `: ${text.substring(0, 200)}...`;
+                        } else {
+                            errorMessage += `: ${text}`;
+                        }
+                    }
                 }
             } catch (e) {
-                // Ignore
+                // Request read failed
+                errorMessage += `: ${res.statusText}`;
             }
             throw new Error(errorMessage);
         }
@@ -181,10 +196,10 @@ export class ProxmoxClient {
         });
     }
 
-    async getTermProxy(node: string, vmid: number, ticket: string, csrfToken: string): Promise<VncProxyResponse> {
+    async getTermProxy(node: string, vmid: number, ticket: string, csrfToken: string, type: 'qemu' | 'lxc' = 'lxc'): Promise<VncProxyResponse> {
         const params = new URLSearchParams();
 
-        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/lxc/${vmid}/termproxy`, {
+        return this.fetch<VncProxyResponse>(`/api2/json/nodes/${node}/${type}/${vmid}/termproxy`, {
             method: 'POST',
             body: params,
             headers: {
@@ -286,5 +301,87 @@ export class ProxmoxClient {
             headers: { Cookie: `PVEAuthCookie=${ticket}` },
         });
         return res.data || [];
+    }
+
+    async getNextId(ticket: string): Promise<number> {
+        const res = await this.fetch<{ data: string }>('/api2/json/cluster/nextid', {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` },
+        });
+        return parseInt(res.data, 10);
+    }
+
+    async cloneVm(node: string, vmid: number, params: { newid: number, name?: string, full?: number, target?: string }, ticket: string, csrfToken: string): Promise<string> {
+        const body = new URLSearchParams();
+        body.append('newid', params.newid.toString());
+        if (params.name) body.append('name', params.name);
+        if (params.full !== undefined) body.append('full', params.full.toString());
+        if (params.target) body.append('target', params.target);
+
+        const res = await this.fetch<{ data: string }>(`/api2/json/nodes/${node}/qemu/${vmid}/clone`, {
+            method: 'POST',
+            body: body,
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+                CSRFPreventionToken: csrfToken
+            },
+        });
+        return res.data;
+    }
+
+    async updateVmConfig(node: string, vmid: number, config: Record<string, string>, ticket: string, csrfToken: string): Promise<string> {
+        const body = new URLSearchParams();
+        for (const [key, value] of Object.entries(config)) {
+            body.append(key, value);
+        }
+
+        const res = await this.fetch<{ data: string }>(`/api2/json/nodes/${node}/qemu/${vmid}/config`, {
+            method: 'POST',
+            body: body,
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+                CSRFPreventionToken: csrfToken
+            },
+        });
+        return res.data;
+    }
+
+    async getNodesNetwork(node: string, ticket: string, type?: string): Promise<any[]> {
+        let path = `/api2/json/nodes/${node}/network`;
+        if (type) path += `?type=${type}`;
+
+        const res = await this.fetch<{ data: any[] }>(path, {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` }
+        });
+        return res.data;
+    }
+
+    async getTaskStatus(node: string, upid: string, ticket: string): Promise<any> {
+        const res = await this.fetch<{ data: any }>(`/api2/json/nodes/${node}/tasks/${upid}/status`, {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` }
+        });
+        return res.data;
+    }
+
+    async resizeVmDisk(node: string, vmid: number, disk: string, size: string, ticket: string, csrfToken: string): Promise<string> {
+        const body = new URLSearchParams();
+        body.append('disk', disk);
+        body.append('size', size);
+
+        const res = await this.fetch<{ data: string }>(`/api2/json/nodes/${node}/qemu/${vmid}/resize`, {
+            method: 'PUT',
+            body: body,
+            headers: {
+                Cookie: `PVEAuthCookie=${ticket}`,
+                CSRFPreventionToken: csrfToken
+            },
+        });
+        return res.data;
+    }
+
+    async getUserPermissions(ticket: string): Promise<Record<string, Record<string, number>>> {
+        const res = await this.fetch<{ data: Record<string, Record<string, number>> }>('/api2/json/access/permissions', {
+            headers: { Cookie: `PVEAuthCookie=${ticket}` }
+        });
+        return res.data;
     }
 }

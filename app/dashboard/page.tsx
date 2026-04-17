@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ProxmoxVm, ProxmoxLxc } from '@/lib/proxmox';
 import ShareModal from './components/ShareModal';
 import GuacamoleModal from '../components/GuacamoleModal';
+import CloneModal from './components/CloneModal';
+
 import { useSessionRefresh } from '@/hooks/useSessionRefresh';
 import Swal from 'sweetalert2';
 
@@ -33,6 +35,8 @@ export default function DashboardPage() {
   const [shareVm, setShareVm] = useState<{vmid: number, node: string, type: 'qemu' | 'lxc'} | null>(null);
   const [openMenuVmId, setOpenMenuVmId] = useState<number | null>(null);
   const [showGuacModal, setShowGuacModal] = useState(false);
+  const [showCloneModal, setShowCloneModal] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
@@ -233,15 +237,6 @@ export default function DashboardPage() {
           </div>
           <div className="flex space-x-3">
               <button 
-                onClick={() => setShowGuacModal(true)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                Guacamole
-              </button>
-              <button 
                 onClick={fetchResources}
                 className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
               >
@@ -250,6 +245,26 @@ export default function DashboardPage() {
                 </svg>
                 Refresh
               </button>
+              <button 
+                onClick={() => setShowGuacModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Guacamole
+              </button>
+              {resources.some((r) => r.type === 'qemu' && (r as any).template === 1 && (r as any).canClone) && (
+                  <button 
+                    onClick={() => setShowCloneModal(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                    </svg>
+                    Clone Template
+                  </button>
+              )}
               <button 
                 onClick={async () => {
                     await fetch('/api/auth/logout', { method: 'POST' });
@@ -373,9 +388,16 @@ export default function DashboardPage() {
                     className="p-6 cursor-pointer hover:bg-gray-700/50"
                     onClick={() => router.push(`/vm/${res.vmid}?node=${res.node}&type=${type}`)}
                 >
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold text-white truncate">{res.name || `${type.toUpperCase()} ${res.vmid}`}</h2>
-                    <span className={`w-3 h-3 rounded-full ${statusColor(res.status)}`} title={res.status}></span>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex flex-col truncate">
+                        <h2 className="text-xl font-semibold text-white truncate">{res.name || `${type.toUpperCase()} ${res.vmid}`}</h2>
+                        {(res as any).template === 1 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-purple-900/50 text-purple-300 border border-purple-500/50 mt-1 w-fit">
+                                📄 Template
+                            </span>
+                        )}
+                    </div>
+                    <span className={`w-3 h-3 rounded-full mt-2 flex-shrink-0 ${statusColor(res.status)}`} title={res.status}></span>
                   </div>
                   
                   <div className="space-y-2 text-sm text-gray-400">
@@ -423,7 +445,7 @@ export default function DashboardPage() {
                                     Console &rarr;
                                 </button>
                             </>
-                        ) : (
+                        ) : (res as any).template !== 1 && (
                             <button 
                                 onClick={(e) => handleAction(e, res.vmid, res.node, 'start', type)}
                                 className="cursor-pointer text-green-500 hover:text-green-400 text-xs uppercase font-bold px-2 py-1 rounded hover:bg-green-900/30 border border-green-700/50"
@@ -577,6 +599,14 @@ export default function DashboardPage() {
             node: r.node,
             type: (r.type || 'qemu') as 'qemu' | 'lxc'
           }))}
+        />
+      )}
+
+      {showCloneModal && (
+        <CloneModal 
+          onClose={() => setShowCloneModal(false)}
+          onSuccess={fetchResources}
+          templates={resources.filter(r => r.type === 'qemu' && (r as any).template === 1 && (r as any).canClone) as ProxmoxVm[]}
         />
       )}
     </div>
