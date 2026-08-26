@@ -333,7 +333,7 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
                 'enable-audio-input': 'false',
                 'force-lossless': 'false',
                 'enable-drive': 'true',
-                'drive-path': '/tmp/guacamole-drive',
+                'drive-path': `/tmp/guacamole-drive/${sessionUUID}`,
                 'create-drive-path': 'true',
                 'drive-name': 'Shared Files'
             });

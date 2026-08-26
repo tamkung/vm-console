@@ -597,14 +597,29 @@ export function useRDPConnection() {
   );
 
   const fetchFiles = useCallback((path: string = '/') => {
-    if (!activeFilesystemRef.current || !guacModuleRef.current) return;
+    if (!activeFilesystemRef.current || !guacModuleRef.current) {
+      console.warn('[Guacamole] fetchFiles called before activeFilesystem was attached.');
+      setLoadingFiles(false);
+      return;
+    }
     const Guacamole = guacModuleRef.current.default || guacModuleRef.current;
-    if (!Guacamole) return;
+    if (!Guacamole) {
+      setLoadingFiles(false);
+      return;
+    }
 
     setLoadingFiles(true);
+
+    // Safety timeout: if virtual drive stream doesn't respond within 4s, stop spinner
+    const timeoutId = setTimeout(() => {
+      console.warn('[Guacamole] fetchFiles stream timed out.');
+      setLoadingFiles(false);
+    }, 4000);
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       activeFilesystemRef.current.requestInputStream(path, (stream: any) => {
+        clearTimeout(timeoutId);
         const reader = new Guacamole.JSONReader(stream);
         reader.onend = () => {
           const json = reader.getJSON();
@@ -636,6 +651,7 @@ export function useRDPConnection() {
         };
       });
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error('Failed to request file list:', err);
       setLoadingFiles(false);
     }

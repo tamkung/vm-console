@@ -8,6 +8,7 @@ interface FileManagerModalProps {
   onClose: () => void;
   files: RemoteFileItem[];
   loading: boolean;
+  hasFilesystem: boolean;
   currentPath: string;
   onNavigate: (path: string) => void;
   onDownload: (file: RemoteFileItem) => void;
@@ -20,6 +21,7 @@ export default function FileManagerModal({
   onClose,
   files,
   loading,
+  hasFilesystem,
   currentPath,
   onNavigate,
   onDownload,
@@ -175,6 +177,16 @@ export default function FileManagerModal({
             <div className="h-48 flex flex-col items-center justify-center text-gray-400 gap-2">
               <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
               <span className="text-xs">Reading virtual drive...</span>
+            </div>
+          ) : !hasFilesystem ? (
+            <div className="h-48 flex flex-col items-center justify-center text-center p-6 text-gray-400 gap-2">
+              <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center text-2xl">
+                ⏳
+              </div>
+              <div className="text-white font-medium text-sm">Virtual Drive Initializing</div>
+              <p className="text-gray-400 text-xs max-w-sm">
+                The virtual drive is connecting to the remote session. Please wait a moment and click the Refresh button (🔄) above.
+              </p>
             </div>
           ) : files.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-center p-6 text-gray-400 gap-2">

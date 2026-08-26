@@ -33,6 +33,7 @@ function GuacConsoleContent() {
     uploadProgress,
     files,
     loadingFiles,
+    hasFilesystem,
     currentPath,
     fetchFiles,
     downloadFile,
@@ -365,6 +366,7 @@ function GuacConsoleContent() {
         onClose={() => setShowFileManager(false)}
         files={files}
         loading={loadingFiles}
+        hasFilesystem={hasFilesystem}
         currentPath={currentPath}
         onNavigate={fetchFiles}
         onDownload={downloadFile}
