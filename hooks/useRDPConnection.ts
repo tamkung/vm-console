@@ -256,13 +256,34 @@ export function useRDPConnection() {
           client.sendKeyEvent(0, resolvedKeysym);
         };
 
-        // Clipboard synchronization
+        // Bidirectional Clipboard synchronization
+        let lastLocalClipboard = '';
+        let lastRemoteClipboard = '';
+
         const sendClipboardToRemote = (text: string) => {
-          if (!guacClientRef.current) return;
-          const stream = guacClientRef.current.createClipboardStream('text/plain');
-          const writer = new Guacamole.StringWriter(stream);
-          writer.sendText(text);
-          writer.sendEnd();
+          if (!guacClientRef.current || !text) return;
+          if (text === lastRemoteClipboard) return;
+          lastLocalClipboard = text;
+          try {
+            const stream = guacClientRef.current.createClipboardStream('text/plain');
+            const writer = new Guacamole.StringWriter(stream);
+            writer.sendText(text);
+            writer.sendEnd();
+          } catch (err) {
+            console.warn('[Clipboard] Error sending clipboard to remote:', err);
+          }
+        };
+
+        const syncLocalClipboardToRemote = async () => {
+          try {
+            if (!navigator.clipboard?.readText) return;
+            const text = await navigator.clipboard.readText();
+            if (text && text !== lastLocalClipboard && text !== lastRemoteClipboard) {
+              sendClipboardToRemote(text);
+            }
+          } catch {
+            // Clipboard read permission might not be granted or window unfocused
+          }
         };
 
         const handleLocalPaste = (e: ClipboardEvent) => {
@@ -272,22 +293,49 @@ export function useRDPConnection() {
           }
         };
 
+        const handleWindowFocus = () => {
+          syncLocalClipboardToRemote();
+        };
+
+        window.addEventListener('focus', handleWindowFocus);
         document.addEventListener('paste', handleLocalPaste);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         client.onclipboard = (stream: any, mimetype: string) => {
-          if (!mimetype.startsWith('text/plain')) return;
+          if (!mimetype || !mimetype.startsWith('text/plain')) return;
           let text = '';
           const reader = new Guacamole.StringReader(stream);
           reader.ontext = (chunk: string) => {
             text += chunk;
           };
-          reader.onend = () => {
-            if (navigator.clipboard) {
-              navigator.clipboard.writeText(text).catch((err) => {
-                console.warn('Failed to write to local clipboard:', err);
-              });
+          reader.onend = async () => {
+            if (!text) return;
+            lastRemoteClipboard = text;
+            lastLocalClipboard = text;
+            try {
+              if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+              }
+            } catch (err) {
+              console.warn('[Clipboard] Failed to write to local clipboard:', err);
             }
+          };
+        };
+
+        // File download from remote session
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        client.onfile = (stream: any, mimetype: string, filename: string) => {
+          const reader = new Guacamole.BlobReader(stream, mimetype);
+          reader.onend = () => {
+            const blob = reader.getBlob();
+            const blobUrl = URL.createObjectURL(blob);
+            const downloadLink = document.createElement('a');
+            downloadLink.href = blobUrl;
+            downloadLink.download = filename || 'downloaded-file';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
           };
         };
 
@@ -300,6 +348,7 @@ export function useRDPConnection() {
           resizeObserver.disconnect();
           window.removeEventListener('keydown', handleGlobalKeyDown, true);
           window.removeEventListener('keyup', handleGlobalKeyUp, true);
+          window.removeEventListener('focus', handleWindowFocus);
           displayEl.removeEventListener('mousemove', handleMouseMove);
           displayEl.removeEventListener('mousedown', handleMouseDown);
           displayEl.removeEventListener('mouseup', flushPendingMouseEvent);

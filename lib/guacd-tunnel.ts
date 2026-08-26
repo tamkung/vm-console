@@ -304,14 +304,16 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
                 'enable-audio': 'false',
                 'enable-audio-input': 'false',
                 'force-lossless': 'false',
-                'enable-drive': 'false'
+                'enable-drive': 'true',
+                'create-drive-path': 'true',
+                'drive-name': 'Shared Files'
             });
         } else if (proto === 'ssh') {
             Object.assign(paramMap, {
                 'font-size': '14',
                 'color-scheme': 'white-black',
                 'server-layout': 'en-us-qwerty',
-                'enable-sftp': 'false'
+                'enable-sftp': 'true'
             });
         } else if (proto === 'vnc') {
             Object.assign(paramMap, {
