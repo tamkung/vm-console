@@ -305,6 +305,7 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
                 'enable-audio-input': 'false',
                 'force-lossless': 'false',
                 'enable-drive': 'true',
+                'drive-path': '/tmp/guacamole-drive',
                 'create-drive-path': 'true',
                 'drive-name': 'Shared Files'
             });
