@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   proxmox-console:
-    build: . # หรือ image: tamwt/vm-console:latest
+    image: tamwt/vm-console:latest
     container_name: proxmox-console
     ports:
       - "3000:3000"
@@ -16,8 +16,26 @@ services:
       GUACD_PORT: "4822"
     depends_on:
       - guacd
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   guacd:
     image: guacamole/guacd:latest
     container_name: guacd
+    restart: always
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --interval 60
+      --cleanup
+      --label-enable
     restart: always
