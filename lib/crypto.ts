@@ -14,6 +14,7 @@ export interface DecryptedRDPPayload {
   consoleType?: string
   exp?: number
   iat?: number
+  jti?: string
 }
 
 export function encryptPayload(payload: object, secretKeyStr?: string): string {
@@ -23,7 +24,10 @@ export function encryptPayload(payload: object, secretKeyStr?: string): string {
   const iv = crypto.randomBytes(12)
   const now = Math.floor(Date.now() / 1000)
   const iat = (payload as DecryptedRDPPayload).iat || now
-  const jsonStr = JSON.stringify({ ...payload, iat, exp: now + 3600 })
+  const jti = (payload as DecryptedRDPPayload).jti || crypto.randomUUID()
+  // Short-lived 60s token for secure handshake
+  const exp = (payload as DecryptedRDPPayload).exp || (now + 60)
+  const jsonStr = JSON.stringify({ ...payload, jti, iat, exp })
 
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv)
   const encrypted = Buffer.concat([cipher.update(jsonStr, "utf8"), cipher.final()])
@@ -49,5 +53,12 @@ export function decryptPayload(encryptedData: string, secretKeyStr?: string): De
   decipher.setAuthTag(authTag)
 
   const decrypted = decipher.update(encrypted) + decipher.final("utf8")
-  return JSON.parse(decrypted) as DecryptedRDPPayload
+  const parsed = JSON.parse(decrypted) as DecryptedRDPPayload
+
+  const now = Math.floor(Date.now() / 1000)
+  if (parsed.exp && now > parsed.exp) {
+    throw new Error("Session token has expired")
+  }
+
+  return parsed
 }

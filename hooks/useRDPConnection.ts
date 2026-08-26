@@ -10,6 +10,13 @@ export interface RDPConnectionDetails {
   vmName?: string;
 }
 
+export interface RemoteFileItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  mimetype: string;
+}
+
 export function useRDPConnection() {
   const [details, setDetails] = useState<RDPConnectionDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +26,21 @@ export function useRDPConnection() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; progress: number } | null>(null);
 
+  // Filesystem Explorer state
+  const [files, setFiles] = useState<RemoteFileItem[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [currentPath, setCurrentPath] = useState('/');
+  const [hasFilesystem, setHasFilesystem] = useState(false);
+
   const displayContainerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const guacClientRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tunnelRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const activeFilesystemRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const guacModuleRef = useRef<any>(null);
   const cleanupListenersRef = useRef<(() => void) | null>(null);
   const hasInitializedRef = useRef(false);
 
@@ -69,6 +86,7 @@ export function useRDPConnection() {
         // Dynamically import guacamole-common-js for browser context
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const guacModule = (await import('guacamole-common-js')) as any;
+        guacModuleRef.current = guacModule;
         const Guacamole = guacModule.default || guacModule;
 
         const width = displayContainerRef.current?.clientWidth || window.innerWidth || 1920;
@@ -322,7 +340,23 @@ export function useRDPConnection() {
           };
         };
 
-        // File download from remote session
+        // Remote virtual filesystem attached (for Shared Files drive)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        client.onfilesystem = (object: any) => {
+          activeFilesystemRef.current = object;
+          setHasFilesystem(true);
+        };
+
+        // Listen for rotating reconnect token from server (One-Time Token rotation)
+        client.onmsg = (msgid: number, parameters: string[]) => {
+          if (msgid === 100 && parameters && parameters[0]) {
+            const freshReconnectToken = parameters[0];
+            setDetails((prev) => (prev ? { ...prev, token: freshReconnectToken } : prev));
+          }
+          return true;
+        };
+
+        // File download from remote session (unsolicited stream)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         client.onfile = (stream: any, mimetype: string, filename: string) => {
           const reader = new Guacamole.BlobReader(stream, mimetype);
@@ -421,6 +455,11 @@ export function useRDPConnection() {
         };
         setDetails(connectionData);
         connectGuacd(connectionData);
+
+        // URL Cleansing: Clean all query parameters from address bar and history
+        if (typeof window !== 'undefined' && window.history?.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
       } else {
         setError('No session token provided. Please connect from the VM manager dashboard.');
         setConnecting(false);
@@ -557,6 +596,77 @@ export function useRDPConnection() {
     [connecting, disconnected, uploadFile]
   );
 
+  const fetchFiles = useCallback((path: string = '/') => {
+    if (!activeFilesystemRef.current || !guacModuleRef.current) return;
+    const Guacamole = guacModuleRef.current.default || guacModuleRef.current;
+    if (!Guacamole) return;
+
+    setLoadingFiles(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      activeFilesystemRef.current.requestInputStream(path, (stream: any) => {
+        const reader = new Guacamole.JSONReader(stream);
+        reader.onend = () => {
+          const json = reader.getJSON();
+          const items: RemoteFileItem[] = [];
+          if (json && typeof json === 'object') {
+            for (const [key, value] of Object.entries(json)) {
+              const valStr = String(value);
+              const isDir = valStr.includes('directory') || valStr.includes('stream-index');
+              const fileName = key.replace(/\/$/, '').split('/').pop() || key;
+              if (fileName && fileName !== '.' && fileName !== '..') {
+                const cleanPath = key.startsWith('/') ? key : `${path === '/' ? '' : path}/${key}`;
+                items.push({
+                  name: fileName,
+                  path: cleanPath,
+                  isDirectory: isDir,
+                  mimetype: valStr,
+                });
+              }
+            }
+          }
+          items.sort((a, b) => {
+            if (a.isDirectory && !b.isDirectory) return -1;
+            if (!a.isDirectory && b.isDirectory) return 1;
+            return a.name.localeCompare(b.name);
+          });
+          setFiles(items);
+          setCurrentPath(path);
+          setLoadingFiles(false);
+        };
+      });
+    } catch (err) {
+      console.error('Failed to request file list:', err);
+      setLoadingFiles(false);
+    }
+  }, []);
+
+  const downloadFile = useCallback((item: RemoteFileItem) => {
+    if (!activeFilesystemRef.current || !guacModuleRef.current) return;
+    const Guacamole = guacModuleRef.current.default || guacModuleRef.current;
+    if (!Guacamole) return;
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      activeFilesystemRef.current.requestInputStream(item.path, (stream: any, mimetype: string) => {
+        const reader = new Guacamole.BlobReader(stream, mimetype);
+        reader.onend = () => {
+          const blob = reader.getBlob();
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = item.name;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        };
+      });
+    } catch (err) {
+      console.error('Download file error:', err);
+    }
+  }, []);
+
   return {
     details,
     connecting,
@@ -564,6 +674,13 @@ export function useRDPConnection() {
     disconnectReason,
     isDragging,
     uploadProgress,
+    files,
+    loadingFiles,
+    currentPath,
+    hasFilesystem,
+    fetchFiles,
+    downloadFile,
+    uploadFile,
     displayContainerRef,
     sendSpecialKey,
     handleReconnect,

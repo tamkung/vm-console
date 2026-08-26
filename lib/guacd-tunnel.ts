@@ -3,7 +3,21 @@ import { IncomingMessage } from 'http';
 import { WebSocket } from 'ws';
 import { parse } from 'url';
 import { Buffer } from 'buffer';
-import { decryptPayload } from './crypto';
+import crypto from 'crypto';
+import { decryptPayload, encryptPayload } from './crypto';
+
+// Track consumed tokens to enforce single-use tickets (One-Time Tokens)
+const usedTokens = new Map<string, number>();
+
+// Clean up expired tokens every minute
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, expiry] of usedTokens.entries()) {
+        if (now > expiry) {
+            usedTokens.delete(key);
+        }
+    }
+}, 60 * 1000);
 
 // Helper to calculate Unicode code point length for Guacamole instruction elements
 function getRuneLength(str: string): number {
@@ -192,15 +206,29 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
 
     if (token) {
         try {
+            // Check if token has already been consumed (One-Time Token protection)
+            const tokenFingerprint = crypto.createHash('sha256').update(token).digest('hex');
+            if (usedTokens.has(tokenFingerprint)) {
+                console.warn('[guacd-tunnel] Security alert: Rejected re-use of already consumed token');
+                ws.send(buildGuacInstruction('error', 'Session token has already been used or expired. Please generate a new connection from the dashboard.', '519'));
+                ws.close();
+                return;
+            }
+
             const payload = decryptPayload(token);
             if (payload.consoleType) protocol = payload.consoleType;
             if (payload.url) hostname = payload.url;
             if (payload.port) port = String(payload.port);
             if (payload.user) username = payload.user;
             if (payload.password) password = payload.password;
-        } catch (err) {
-            console.error('[guacd-tunnel] Failed to decrypt token:', err);
-            ws.send(buildGuacInstruction('error', 'Invalid or expired session token', '519'));
+
+            // Mark token as consumed immediately
+            const expiryTime = (payload.exp ? payload.exp * 1000 : Date.now() + 60000) + 60000;
+            usedTokens.set(tokenFingerprint, expiryTime);
+        } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : 'Invalid or expired session token';
+            console.error('[guacd-tunnel] Failed to decrypt/validate token:', errorMsg);
+            ws.send(buildGuacInstruction('error', errorMsg, '519'));
             ws.close();
             return;
         }
@@ -339,6 +367,18 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
         // Step 6: Send tunnel initialization and ready instruction to WebSocket client
         ws.send(buildGuacInstruction('', sessionUUID));
         ws.send(buildGuacInstruction('ready', ...readyArgs));
+
+        // Generate a fresh rotating reconnect token for this session (One-Time Token Rotation)
+        const reconnectToken = encryptPayload({
+            url: hostname,
+            port: port,
+            user: username,
+            password: password,
+            vmName: (query.title as string) || 'Remote Desktop',
+            consoleType: proto,
+            exp: Math.floor(Date.now() / 1000) + 7200,
+        });
+        ws.send(buildGuacInstruction('msg', '100', reconnectToken));
 
         console.log(`[guacd-tunnel] RDP session established for ${hostname}:${port} (session: ${sessionUUID})`);
 

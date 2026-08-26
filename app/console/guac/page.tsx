@@ -3,6 +3,7 @@
 import React, { Suspense, useState, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useRDPConnection } from '@/hooks/useRDPConnection';
+import FileManagerModal from '@/app/components/FileManagerModal';
 
 // Keysym definitions for key injection
 const KEYSYMS = {
@@ -21,6 +22,7 @@ function GuacConsoleContent() {
   const proxyInputRef = useRef<HTMLInputElement>(null);
 
   const [showToolbar, setShowToolbar] = useState(true);
+  const [showFileManager, setShowFileManager] = useState(false);
 
   const {
     details,
@@ -29,6 +31,12 @@ function GuacConsoleContent() {
     disconnectReason,
     isDragging,
     uploadProgress,
+    files,
+    loadingFiles,
+    currentPath,
+    fetchFiles,
+    downloadFile,
+    uploadFile,
     displayContainerRef,
     sendSpecialKey,
     handleReconnect,
@@ -201,12 +209,17 @@ function GuacConsoleContent() {
 
             <div className="w-px h-4 bg-gray-700 mx-0.5" />
 
-            <div
-              className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-400 font-mono"
-              title="Drag and drop any file onto this window to upload"
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowFileManager(true);
+                fetchFiles('/');
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 py-1 rounded text-xs border border-gray-700 transition-colors flex items-center gap-1.5 font-medium"
+              title="Browse, Upload & Download Shared Files"
             >
-              📁 Drop to Upload
-            </div>
+              <span>📁</span> Files
+            </button>
 
             <button
               onClick={(e) => {
@@ -344,6 +357,19 @@ function GuacConsoleContent() {
         onInput={(e) => {
           (e.target as HTMLInputElement).value = '';
         }}
+      />
+
+      {/* Shared Files Explorer Modal */}
+      <FileManagerModal
+        isOpen={showFileManager}
+        onClose={() => setShowFileManager(false)}
+        files={files}
+        loading={loadingFiles}
+        currentPath={currentPath}
+        onNavigate={fetchFiles}
+        onDownload={downloadFile}
+        onUpload={uploadFile}
+        onRefresh={() => fetchFiles(currentPath)}
       />
     </div>
   );
