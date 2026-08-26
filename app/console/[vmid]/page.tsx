@@ -149,7 +149,6 @@ function ConsoleContent() {
                 // XTERM.JS Logic
                 const { Terminal } = await import('xterm');
                 const { FitAddon } = await import('xterm-addon-fit');
-                // @ts-expect-error - xterm css import might not be typed
                 await import('xterm/css/xterm.css');
 
                 const term = new Terminal({

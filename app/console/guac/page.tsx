@@ -1,306 +1,364 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import React, { Suspense, useState, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useRDPConnection } from '@/hooks/useRDPConnection';
+
+// Keysym definitions for key injection
+const KEYSYMS = {
+  CTRL_L: 0xffe3,
+  ALT_L: 0xffe9,
+  DEL: 0xffff,
+  TAB: 0xff09,
+  ESC: 0xff1b,
+  SUPER_L: 0xffeb, // Windows key
+};
 
 function GuacConsoleContent() {
-    const searchParams = useSearchParams();
-    const sessionId = searchParams?.get('session');
-    const openMode = searchParams?.get('mode') || 'same-tab';
-    
-    const [iframeSrc, setIframeSrc] = useState<string | null>(null);
-    const [error, setError] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [showToolbar, setShowToolbar] = useState(true); // Toggle-based, default visible
-    const [isDragging, setIsDragging] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const openMode = searchParams?.get('mode') || 'same-tab';
+  const proxyInputRef = useRef<HTMLInputElement>(null);
 
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const proxyInputRef = useRef<HTMLInputElement>(null);
+  const [showToolbar, setShowToolbar] = useState(true);
 
-    useEffect(() => {
-        if (!sessionId) {
-            setError('No session ID provided');
-            setLoading(false);
-            return;
-        }
-        
-        // Fetch the Guacamole URL from the session API
-        const fetchUrl = async () => {
-            try {
-                const res = await fetch(`/api/guacamole/session?session=${sessionId}`);
-                if (!res.ok) {
-                    const data = await res.json();
-                    throw new Error(data.error || 'Failed to get session');
-                }
-                const data = await res.json();
-                if (data.url) {
-                    setIframeSrc(data.url);
-                } else {
-                    throw new Error('No URL received');
-                }
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load console');
-            } finally {
-                setLoading(false);
-            }
-        };
-        
-        fetchUrl();
-    }, [sessionId]);
+  const {
+    details,
+    connecting,
+    disconnected,
+    disconnectReason,
+    isDragging,
+    uploadProgress,
+    displayContainerRef,
+    sendSpecialKey,
+    handleReconnect,
+    handleToggleFullscreen,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    error,
+  } = useRDPConnection();
 
-    // Function to ensure iframe has focus for keyboard events
-    const focusIframe = () => {
-        if (iframeRef.current) {
-            iframeRef.current.focus();
-            
-            // Also try to send a click message or just ensure content window has focus
-            if (iframeRef.current.contentWindow) {
-                iframeRef.current.contentWindow.focus();
-            }
-        }
-    };
-
-    // Auto-focus when iframe loads or src changes
-    useEffect(() => {
-        if (iframeSrc) {
-            console.log('[GuacConsole] Iframe source set to:', iframeSrc);
-            // Small delay to allow iframe to render
-            const timer = setTimeout(focusIframe, 500);
-            return () => clearTimeout(timer);
-        }
-    }, [iframeSrc]);
-
-    // Debugging: catch page reloads
-    useEffect(() => {
-        const handleBeforeUnload = () => {
-            console.log('[GuacConsole] Page is being unloaded. Session:', sessionId);
-        };
-
-        const handleDragOver = (e: DragEvent) => {
-            e.preventDefault();
-            setIsDragging(true);
-        };
-
-        const handleDragLeave = (e: DragEvent) => {
-            e.preventDefault();
-            // Only hide if we actually left the window
-            if (e.relatedTarget === null) {
-                setIsDragging(false);
-            }
-        };
-
-        const handleDrop = (e: DragEvent) => {
-            e.preventDefault();
-            setIsDragging(false);
-            // We let the iframe handle the actual drop
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        window.addEventListener('dragover', handleDragOver);
-        window.addEventListener('dragleave', handleDragLeave);
-        window.addEventListener('drop', handleDrop);
-
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-            window.removeEventListener('dragover', handleDragOver);
-            window.removeEventListener('dragleave', handleDragLeave);
-            window.removeEventListener('drop', handleDrop);
-        };
-    }, [sessionId]);
-
-
-    const toggleToolbar = () => {
-        setShowToolbar(prev => !prev);
-    };
-
-    const handleBack = () => {
-        const currentUrl = new URL(window.location.href);
-        const targetPort = currentUrl.port === '3001' ? '3000' : currentUrl.port;
-        const targetUrl = `${currentUrl.protocol}//${currentUrl.hostname}${targetPort ? `:${targetPort}` : ''}/dashboard`;
-
-        if (iframeRef.current) {
-            iframeRef.current.src = 'about:blank';
-        }
-        window.location.assign(targetUrl);
-    };
-
-    const activateKeyboard = () => {
-        // Focus the proxy input to trigger virtual keyboard on mobile/tablet
-        if (proxyInputRef.current) {
-            proxyInputRef.current.focus({ preventScroll: true });
-            proxyInputRef.current.click();
-        }
-    };
-
-    if (error) {
-        return (
-            <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center">
-                <div className="text-red-400 text-xl mb-4">Error: {error}</div>
-                <button 
-                    onClick={handleBack}
-                    className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
-                >
-                    Back to Dashboard
-                </button>
-            </div>
-        );
+  const handleBack = () => {
+    if (openMode === 'new-tab') {
+      window.close();
+    } else {
+      router.push('/dashboard');
     }
+  };
 
+  const activateKeyboard = () => {
+    if (proxyInputRef.current) {
+      proxyInputRef.current.focus({ preventScroll: true });
+      proxyInputRef.current.click();
+    }
+  };
+
+  if (error) {
     return (
-        <div 
-            className="h-screen bg-gray-900 flex flex-col overflow-hidden"
-            onClick={focusIframe} // Clicking anywhere outside toolbar should focus iframe
-        >
-            {/* Toggle Button for Toolbar - Always visible */}
-            <div className="fixed top-0 left-1/2 transform -translate-x-1/2 z-[60] transition-opacity duration-300 opacity-30 hover:opacity-100">
-                <button 
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        toggleToolbar();
-                    }}
-                    className="bg-gray-800/80 hover:bg-gray-700 text-gray-400 hover:text-white px-3 py-0.5 rounded-b-lg border-b border-x border-gray-600 shadow-lg text-[10px] font-bold transition-all"
-                    title={showToolbar ? "Hide Toolbar" : "Show Toolbar"}
-                >
-                    {showToolbar ? "▲ Hide Controls" : "▼ Show Controls"}
-                </button>
-            </div>
-            
-            {/* Toolbar - Toggle-based show/hide */}
-            <div 
-                className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-                    showToolbar 
-                        ? 'opacity-100 translate-y-0 pointer-events-auto' 
-                        : 'opacity-0 -translate-y-full pointer-events-none'
-                }`}
-            >
-                <div className="bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 px-2 py-1 flex items-center justify-between h-9">
-                    <div className="flex items-center gap-3">
-                        {openMode !== 'new-tab' && (
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation(); // Prevent focusing iframe instantly so button works
-                                    handleBack();
-                                }}
-                                className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs flex items-center gap-1"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                                </svg>
-                                Back
-                            </button>
-                        )}
-                        <span className="text-gray-400 text-xs hidden md:inline">Guacamole Remote Console</span>
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-900/30 border border-emerald-500/20" title="File Transfer is enabled. Drag and drop files to upload.">
-                            <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                </svg>
-                                FILE TRANSFER
-                            </span>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {/* Show Keyboard Button */}
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                activateKeyboard();
-                            }}
-                            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs"
-                            title="Show Keyboard (for tablets)"
-                        >
-                            ⌨️ Keyboard
-                        </button>
-                        {/* Fullscreen Button */}
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const iframe = document.getElementById('guac-frame') as HTMLIFrameElement;
-                                if (iframe?.requestFullscreen) {
-                                    iframe.requestFullscreen();
-                                    // Focus again after fullscreen change
-                                    setTimeout(focusIframe, 100);
-                                }
-                            }}
-                            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs"
-                            title="Fullscreen"
-                        >
-                            ⛶ Fullscreen
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* Console Frame - full screen, no scrollbar */}
-            <div 
-                className={`flex-1 relative overflow-hidden ${showToolbar ? 'mt-9' : 'mt-0'}`}
-            >
-                {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                        <div className="text-white animate-pulse">Loading Console...</div>
-                    </div>
-                )}
-                {iframeSrc && (
-                    <iframe
-                        ref={iframeRef}
-                        id="guac-frame"
-                        src={iframeSrc}
-                        className="w-full h-full border-0"
-                        style={{ height: '100%' }}
-                        allow="clipboard-read; clipboard-write; fullscreen"
-                        onLoad={() => {
-                            setLoading(false);
-                            focusIframe();
-                        }}
-                    />
-                )}
-            </div>
-
-            {/* Drag and Drop Overlay */}
-            {isDragging && (
-                <div className="fixed inset-0 z-[100] bg-emerald-500/10 backdrop-blur-[2px] border-4 border-dashed border-emerald-500/50 flex flex-col items-center justify-center pointer-events-none">
-                    <div className="bg-gray-900/90 p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 scale-110 transition-transform">
-                        <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-400 animate-bounce">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                            </svg>
-                        </div>
-                        <div className="text-center">
-                            <h3 className="text-xl font-bold text-white mb-1">Drop Files to Upload</h3>
-                            <p className="text-gray-400 text-sm">Release to start transferring to session</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Proxy Input for Virtual Keyboard Support on Tablets */}
-            <input 
-                ref={proxyInputRef}
-                type="text"
-                inputMode="text"
-                className="fixed top-12 left-0 w-8 h-8 opacity-0 z-0 pointer-events-auto" 
-                autoCorrect="off" 
-                autoCapitalize="off" 
-                spellCheck="false" 
-                autoComplete="off"
-                onInput={(e) => {
-                    // Clear the input after capture (Guacamole handles its own input)
-                    (e.target as HTMLInputElement).value = '';
-                }}
-            />
+      <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-6 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center text-2xl font-bold">
+          ⚠️
         </div>
+        <h1 className="text-xl font-bold text-gray-100">RDP Connection Error</h1>
+        <p className="text-red-400 text-sm max-w-md text-center bg-red-950/40 border border-red-800/50 p-3 rounded">
+          {error}
+        </p>
+        <div className="flex gap-3 pt-2">
+          {details && (
+            <button
+              onClick={handleReconnect}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded transition-colors"
+            >
+              Retry Connection
+            </button>
+          )}
+          <button
+            onClick={handleBack}
+            className="bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs px-4 py-2 rounded transition-colors"
+          >
+            {openMode === 'new-tab' ? 'Close Window' : 'Back to Dashboard'}
+          </button>
+        </div>
+      </div>
     );
+  }
+
+  return (
+    <div
+      className="h-screen w-screen bg-black flex flex-col overflow-hidden select-none font-sans"
+      onClick={() => {
+        if (displayContainerRef.current) {
+          displayContainerRef.current.focus();
+        }
+      }}
+    >
+      {/* Floating Toggle Button - only shown when toolbar is hidden */}
+      {!showToolbar && (
+        <div className="fixed top-0 left-1/2 transform -translate-x-1/2 z-[60] transition-opacity duration-300 opacity-30 hover:opacity-100">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowToolbar(true);
+            }}
+            className="bg-gray-800/90 hover:bg-gray-700 text-gray-400 hover:text-white px-3 py-0.5 rounded-b-lg border-b border-x border-gray-600 shadow-lg text-[10px] font-bold transition-all"
+            title="Show Toolbar"
+          >
+            ▼ Show Controls
+          </button>
+        </div>
+      )}
+
+      {/* Top Controls Toolbar */}
+      <div
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          showToolbar
+            ? 'opacity-100 translate-y-0 pointer-events-auto'
+            : 'opacity-0 -translate-y-full pointer-events-none'
+        }`}
+      >
+        <div className="bg-gray-900/95 backdrop-blur-md border-b border-gray-800 px-3 py-1 flex items-center justify-between h-10 shadow-lg">
+          {/* Left: Info & Back */}
+          <div className="flex items-center gap-3 flex-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleBack();
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1 rounded text-xs flex items-center gap-1.5 transition-colors border border-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              {openMode === 'new-tab' ? 'Close' : 'Back'}
+            </button>
+
+            <div className="flex items-center gap-2">
+              <span className="text-white font-medium text-xs truncate max-w-[200px]">
+                {details?.vmName || 'Remote Desktop'}
+              </span>
+              <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Native guacd
+              </span>
+            </div>
+          </div>
+
+          {/* Center: Hide Controls */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowToolbar(false);
+            }}
+            className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white px-3 py-1 rounded text-[10px] font-bold border border-gray-700 transition-colors"
+            title="Hide Toolbar"
+          >
+            ▲ Hide Controls
+          </button>
+
+          {/* Right: Key Injections + Actions */}
+          <div className="flex items-center gap-1.5 flex-1 justify-end">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                sendSpecialKey([KEYSYMS.CTRL_L, KEYSYMS.ALT_L, KEYSYMS.DEL]);
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+              title="Send Ctrl+Alt+Delete"
+            >
+              Ctrl+Alt+Del
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                sendSpecialKey([KEYSYMS.SUPER_L]);
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+              title="Send Windows Key"
+            >
+              Win
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                sendSpecialKey([KEYSYMS.ALT_L, KEYSYMS.TAB]);
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+              title="Send Alt+Tab"
+            >
+              Alt+Tab
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                sendSpecialKey([KEYSYMS.ESC]);
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+              title="Send Esc"
+            >
+              Esc
+            </button>
+
+            <div className="w-px h-4 bg-gray-700 mx-0.5" />
+
+            <div
+              className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-400 font-mono"
+              title="Drag and drop any file onto this window to upload"
+            >
+              📁 Drop to Upload
+            </div>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                activateKeyboard();
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-xs border border-gray-700 transition-colors"
+              title="Show Virtual Keyboard (for tablets/mobile)"
+            >
+              ⌨️ Keyboard
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReconnect();
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-xs border border-gray-700 transition-colors"
+              title="Reconnect"
+            >
+              🔄 Reconnect
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleFullscreen();
+              }}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-xs border border-gray-700 transition-colors"
+              title="Fullscreen"
+            >
+              ⛶ Fullscreen
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Console Canvas Display */}
+      <main
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`flex-1 relative w-full h-full overflow-hidden flex items-center justify-center bg-black ${
+          showToolbar ? 'mt-10' : 'mt-0'
+        }`}
+      >
+        <div
+          ref={displayContainerRef}
+          tabIndex={0}
+          className="relative w-full h-full flex items-center justify-center overflow-hidden outline-none cursor-default"
+        />
+
+        {/* Connecting Spinner Overlay */}
+        {connecting && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
+            <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+            <h3 className="text-white font-medium text-base mb-1">Connecting to Remote Desktop...</h3>
+            <p className="text-gray-400 text-xs">Negotiating native guacd stream & security handshake</p>
+          </div>
+        )}
+
+        {/* Disconnected Overlay */}
+        {disconnected && !connecting && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm p-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-sm w-full text-center shadow-2xl space-y-4">
+              <div className="w-12 h-12 rounded-full bg-yellow-500/20 text-yellow-400 mx-auto flex items-center justify-center text-2xl font-bold">
+                🔌
+              </div>
+              <div>
+                <h3 className="text-white font-bold text-base">Session Disconnected</h3>
+                <p className="text-gray-400 text-xs mt-1">
+                  {disconnectReason || 'The remote desktop session has closed.'}
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={handleReconnect}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 rounded transition-colors"
+                >
+                  Reconnect
+                </button>
+                <button
+                  onClick={handleBack}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs py-2 rounded transition-colors"
+                >
+                  {openMode === 'new-tab' ? 'Close' : 'Back'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Drag & Drop File Upload Overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-40 bg-emerald-500/15 backdrop-blur-[2px] border-4 border-dashed border-emerald-500/60 flex flex-col items-center justify-center pointer-events-none">
+            <div className="bg-gray-900/90 border border-gray-700 p-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3 scale-110 transition-transform">
+              <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-400 text-3xl animate-bounce">
+                📤
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-bold text-white mb-0.5">Drop Files to Upload</h3>
+                <p className="text-gray-400 text-xs">Files will be transferred directly to the remote session</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upload Progress Bar */}
+        {uploadProgress && (
+          <div className="absolute bottom-6 right-6 z-40 bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-2xl w-80 space-y-2">
+            <div className="flex justify-between text-xs text-white">
+              <span className="truncate max-w-[180px] font-medium">{uploadProgress.filename}</span>
+              <span className="text-emerald-400 font-mono">{uploadProgress.progress}%</span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-emerald-500 h-full transition-all duration-150"
+                style={{ width: `${uploadProgress.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Proxy Input for Virtual Keyboard Support on Tablets */}
+      <input
+        ref={proxyInputRef}
+        type="text"
+        inputMode="text"
+        className="fixed top-12 left-0 w-8 h-8 opacity-0 z-0 pointer-events-auto"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck="false"
+        autoComplete="off"
+        onInput={(e) => {
+          (e.target as HTMLInputElement).value = '';
+        }}
+      />
+    </div>
+  );
 }
 
 export default function GuacConsolePage() {
-    return (
-        <Suspense fallback={
-            <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-                <div className="animate-pulse">Loading...</div>
-            </div>
-        }>
-            <GuacConsoleContent />
-        </Suspense>
-    );
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-black text-white flex items-center justify-center">
+          <div className="animate-pulse text-sm text-gray-400">Loading Native RDP Console...</div>
+        </div>
+      }
+    >
+      <GuacConsoleContent />
+    </Suspense>
+  );
 }

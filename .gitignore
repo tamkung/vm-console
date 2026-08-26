@@ -50,3 +50,8 @@ data/shares.json
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# docker compose
+docker-compose*.yml
+!docker-compose.example.yml
+

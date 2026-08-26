@@ -1,287 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
-import { GUACAMOLE_PROXY_PREFIX } from '@/lib/guacamole';
+import { encryptPayload } from '@/lib/crypto';
 
 interface ConnectionRequest {
     protocol: 'rdp' | 'vnc' | 'ssh';
     host: string;
-    port: number;
+    port: number | string;
     username: string;
-    password: string;
-}
-
-// Simple in-memory session store (in production, use Redis or similar)
-const sessionStore = new Map<string, { url: string; expiresAt: number }>();
-
-// Clean up expired sessions
-function cleanupSessions() {
-    const now = Date.now();
-    for (const [key, value] of sessionStore.entries()) {
-        if (value.expiresAt < now) {
-            sessionStore.delete(key);
-        }
-    }
-}
-
-/**
- * Creates encrypted JSON payload for Guacamole auth
- * Uses HMAC-SHA256 for signing and AES-128-CBC for encryption
- */
-function createEncryptedPayload(json: string, secretKeyHex: string): string {
-    // Convert hex key to buffer (128-bit = 16 bytes)
-    const key = Buffer.from(secretKeyHex, 'hex');
-
-    if (key.length !== 16) {
-        throw new Error('Secret key must be 32 hex characters (128 bits)');
-    }
-
-    // Sign with HMAC-SHA256
-    const hmac = crypto.createHmac('sha256', key);
-    hmac.update(json, 'utf8');
-    const signature = hmac.digest();
-
-    // Combine signature + plaintext
-    const dataToEncrypt = Buffer.concat([signature, Buffer.from(json, 'utf8')]);
-
-    // Encrypt with AES-128-CBC, IV = all zeros
-    const iv = Buffer.alloc(16, 0);
-    const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
-    const encrypted = Buffer.concat([cipher.update(dataToEncrypt), cipher.final()]);
-
-    // Return base64 encoded
-    return encrypted.toString('base64');
+    password?: string;
+    vmName?: string;
 }
 
 export async function POST(request: NextRequest) {
     try {
         const body: ConnectionRequest = await request.json();
-        const { protocol, host, port, username, password } = body;
+        const { protocol, host, port, username, password, vmName } = body;
 
         // Validate required fields
-        if (!protocol || !host || !username) {
+        if (!host || (protocol !== 'vnc' && !username)) {
             return NextResponse.json(
-                { error: 'Missing required fields: protocol, host, username' },
+                { error: 'Missing required fields: host (and username) are required' },
                 { status: 400 }
             );
         }
 
-        // Get environment variables
-        const guacamoleUrl = process.env.GUACAMOLE_URL;
-        const secretKey = process.env.GUACAMOLE_SECRET_KEY;
+        const effectivePort = String(port || (protocol === 'ssh' ? '22' : protocol === 'vnc' ? '5900' : '3389'));
 
-        if (!guacamoleUrl) {
-            return NextResponse.json(
-                { error: 'GUACAMOLE_URL not configured' },
-                { status: 500 }
-            );
-        }
-
-        if (!secretKey) {
-            return NextResponse.json(
-                { error: 'GUACAMOLE_SECRET_KEY not configured' },
-                { status: 500 }
-            );
-        }
-
-        const sessionTtlMinutes = parseInt(process.env.GUACAMOLE_SESSION_TTL_MINUTES || '480', 10);
-        const sessionTtlMs = sessionTtlMinutes * 60 * 1000;
-
-        // Build connection parameters based on protocol
-        const connectionParams: Record<string, string> = {
-            hostname: host,
-            port: port.toString(),
-            username: username
-        };
-
-        if (password) {
-            connectionParams.password = password;
-        }
-
-        // Protocol-specific parameters
-        if (protocol === 'rdp') {
-            connectionParams['ignore-cert'] = 'true';
-            connectionParams['security'] = 'any';
-
-            // Keyboard layout - use US English server-side for consistent shortcuts
-            // This ensures Ctrl+A/C/V work even when client keyboard is Thai/other language
-            connectionParams['server-layout'] = 'en-us-qwerty';
-
-            // Normalize keyboard input - converts Unicode to scancodes for proper shortcut handling
-            connectionParams['normalize-keyboard'] = 'true';
-
-            // Dynamic resolution (like Windows Admin Center)
-            connectionParams['resize-method'] = 'display-update';
-
-            // Clipboard support
-            connectionParams['enable-clipboard'] = 'true';
-            connectionParams['disable-copy'] = 'false';
-            connectionParams['disable-paste'] = 'false';
-
-            // Better color depth and quality
-            connectionParams['color-depth'] = '32';
-
-            // Enable audio (optional)
-            connectionParams['enable-audio'] = 'true';
-            connectionParams['enable-audio-input'] = 'true';
-
-            // Enable printing (optional)
-            connectionParams['enable-printing'] = 'true';
-        };
-
-        if (password) {
-            connectionParams.password = password;
-        }
-
-        // Protocol-specific parameters
-        if (protocol === 'rdp') {
-            connectionParams['ignore-cert'] = 'true';
-            connectionParams['security'] = 'any';
-
-            // Keyboard layout - use US English server-side for consistent shortcuts
-            // This ensures Ctrl+A/C/V work even when client keyboard is Thai/other language
-            connectionParams['server-layout'] = 'en-us-qwerty';
-
-            // Normalize keyboard input - converts Unicode to scancodes for proper shortcut handling
-            connectionParams['normalize-keyboard'] = 'true';
-
-            // Dynamic resolution (like Windows Admin Center)
-            connectionParams['resize-method'] = 'display-update';
-
-            // Clipboard support
-            connectionParams['enable-clipboard'] = 'true';
-            connectionParams['disable-copy'] = 'false';
-            connectionParams['disable-paste'] = 'false';
-
-            // Better color depth and quality
-            connectionParams['color-depth'] = '32';
-
-            // Enable audio (optional)
-            connectionParams['enable-audio'] = 'true';
-            connectionParams['enable-audio-input'] = 'true';
-
-            // Enable printing (optional)
-            connectionParams['enable-printing'] = 'true';
-
-            // Enable drive sharing (optional)
-            connectionParams['enable-drive'] = 'true';
-            connectionParams['drive-name'] = 'Shared';
-            connectionParams['drive-path'] = '/tmp/guac-drive';
-            connectionParams['create-drive-path'] = 'true';
-        } else if (protocol === 'vnc') {
-            // VNC clipboard and SFTP support
-            connectionParams['enable-clipboard'] = 'true';
-            connectionParams['enable-sftp'] = 'true';
-            connectionParams['sftp-hostname'] = host;
-            connectionParams['sftp-port'] = '22'; // Default SFTP/SSH port
-        } else if (protocol === 'ssh') {
-            // SSH specific and SFTP support
-            connectionParams['color-scheme'] = 'white-black';
-            connectionParams['font-size'] = '12';
-            connectionParams['enable-sftp'] = 'true';
-        }
-
-        // Create JSON payload for Guacamole
-        const connectionName = `${protocol.toUpperCase()}-${host}`;
-        const expiresAt = Date.now() + sessionTtlMs;
-        const payload = {
-            username: 'guac_user',
-            expires: expiresAt,
-            connections: {
-                [connectionName]: {
-                    protocol: protocol,
-                    parameters: connectionParams
-                }
-            }
-        };
-
-        const jsonPayload = JSON.stringify(payload);
-
-        // Encrypt the payload
-        const encryptedData = createEncryptedPayload(jsonPayload, secretKey);
-
-        // POST to Guacamole /api/tokens
-        const tokenUrl = `${guacamoleUrl}/guacamole/api/tokens`;
-        const tokenResponse = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: `data=${encodeURIComponent(encryptedData)}`
+        // Create encrypted token using AES-256-GCM
+        const token = encryptPayload({
+            url: host.trim(),
+            port: effectivePort,
+            user: (username || '').trim(),
+            password: password || '',
+            vmName: vmName || `${(protocol || 'rdp').toUpperCase()} Console`,
+            consoleType: protocol || 'rdp',
         });
 
-        if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            console.error('Guacamole token error:', errorText);
-            return NextResponse.json(
-                { error: 'Failed to authenticate with Guacamole. Check server configuration.' },
-                { status: 502 }
-            );
-        }
+        // Direct console URL in same app
+        const consoleUrl = `/console/guac?token=${encodeURIComponent(token)}${vmName ? `&title=${encodeURIComponent(vmName)}` : ''}`;
 
-        const tokenData = await tokenResponse.json();
-        const authToken = tokenData.authToken;
-
-        if (!authToken) {
-            return NextResponse.json(
-                { error: 'No auth token received from Guacamole' },
-                { status: 502 }
-            );
-        }
-
-        // Build the connection URL through the local proxy so the browser never sees the backend host.
-        const connectionId = Buffer.from(`${connectionName}\0c\0json`).toString('base64');
-        const consoleUrl = `${GUACAMOLE_PROXY_PREFIX}/#/client/${connectionId}?token=${authToken}`;
-
-        // Generate session ID and store the URL server-side
-        cleanupSessions();
-        const sessionId = crypto.randomBytes(32).toString('hex');
-        sessionStore.set(sessionId, {
-            url: consoleUrl,
-            expiresAt: Date.now() + sessionTtlMs
+        return NextResponse.json({
+            success: true,
+            token,
+            isolatedUrl: consoleUrl
         });
-
-        let isolatedUrl: string;
-
-        const requestUrl = new URL(request.url);
-        const forwardedProto = request.headers.get('x-forwarded-proto');
-        const forwardedHost = request.headers.get('x-forwarded-host');
-        const appProtocol = forwardedProto || requestUrl.protocol.replace(':', '');
-        const hostHeader = forwardedHost || request.headers.get('host') || requestUrl.host;
-        const normalizedHost = hostHeader.replace(/\/+$/, '');
-        const isLocalHost =
-            normalizedHost.startsWith('localhost') ||
-            normalizedHost.startsWith('127.0.0.1');
-
-        if (isLocalHost) {
-            const hostname = normalizedHost.split(':')[0];
-            const guacProxyPort = process.env.GUACAMOLE_PROXY_PORT || '3001';
-            isolatedUrl = `${appProtocol}://${hostname}:${guacProxyPort}/console/guac?session=${encodeURIComponent(sessionId)}`;
-        } else {
-            // Extract path prefix from GUACAMOLE_PROXY_PUBLIC_URL, or default to /guac-console
-            // Always use the request host so domain access stays on domain, IP access stays on IP
-            let guacPathPrefix = '/guac-console';
-            const publicBaseUrl = process.env.GUACAMOLE_PROXY_PUBLIC_URL?.replace(/\/+$/, '');
-            if (publicBaseUrl) {
-                try {
-                    guacPathPrefix = new URL(publicBaseUrl).pathname.replace(/\/+$/, '');
-                } catch {
-                    // If not a full URL, treat it as a path prefix
-                    guacPathPrefix = publicBaseUrl.replace(/^https?:\/\/[^/]*/, '').replace(/\/+$/, '') || '/guac-console';
-                }
-            }
-            isolatedUrl = `${appProtocol}://${normalizedHost}${guacPathPrefix}/console/guac?session=${encodeURIComponent(sessionId)}`;
-        }
-
-        return NextResponse.json({ sessionId, isolatedUrl });
 
     } catch (error) {
-        console.error('Guacamole connect error:', error);
+        console.error('[Guacamole Connect] Error:', error);
         return NextResponse.json(
             { error: error instanceof Error ? error.message : 'Internal server error' },
             { status: 500 }
         );
     }
 }
-
-// Export session store for use by other routes
-export { sessionStore };

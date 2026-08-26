@@ -71,16 +71,16 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
     # Allow self-signed certificates (Development only)
     NODE_TLS_REJECT_UNAUTHORIZED=0
 
-    # JWT Secret for VM Sharing (Required for share links)
+    # JWT Secret for VM Sharing & RDP Encryption
     JWT_SECRET=your-secret-key-at-least-32-chars
+    RDP_ENCRYPTION_KEY=your-secret-key-at-least-32-chars
 
-    # Guacamole Configuration (Optional - for remote console)
-    GUACAMOLE_URL=http://192.168.1.1:8080
-    GUACAMOLE_SECRET_KEY=your-32-hex-character-secret-key
+    # Guacamole Daemon (guacd) Configuration
+    GUACD_HOST=127.0.0.1
+    GUACD_PORT=4822
     ```
 
 4.  **Run Development Server**:
-    > **Note**: You must use the custom server script, not just `next dev`.
     ```bash
     npm run dev
     ```
@@ -91,91 +91,69 @@ A modern, lightweight web interface for managing Proxmox Virtual Machines, built
 
 ---
 
-## 🌐 Guacamole Setup
+## 🌐 Native Guacamole (guacd) Setup
 
-To use the Guacamole Remote Console feature, you need to set up a Guacamole server with JSON authentication.
+The remote console uses `guacamole-common-js` communicating directly with `guacd` over WebSocket (`/ws/guacd`).
 
-### 1. Install guacamole-auth-json Extension
-
-```bash
-# Download matching version (e.g., 1.6.0)
-wget https://apache.org/dyn/closer.lua/guacamole/1.6.0/binary/guacamole-auth-json-1.6.0.tar.gz
-
-# Extract and copy to extensions
-tar xzf guacamole-auth-json-1.6.0.tar.gz
-cp guacamole-auth-json-1.6.0/guacamole-auth-json-1.6.0.jar /etc/guacamole/extensions/
-```
-
-### 2. Configure guacamole.properties
-
-Add the secret key to your Guacamole configuration:
-```properties
-json-secret-key: YOUR_32_HEX_CHARACTER_SECRET_KEY
-```
-
-### 3. Generate Secret Key
-
-Generate a 128-bit hex key (32 characters):
-```bash
-openssl rand -hex 16
-```
-
-### 4. Docker Compose Example
+### Docker Compose Example
 
 ```yaml
-guacamole:
-  image: guacamole/guacamole:1.6.0
-  environment:
-    GUACD_HOSTNAME: guacd
-    POSTGRESQL_HOSTNAME: postgres
-    POSTGRESQL_DATABASE: guacamole_db
-    POSTGRESQL_USER: guacamole_user
-    POSTGRESQL_PASSWORD: mypassword
-    GUACAMOLE_HOME: /opt/guacamole/.guacamole
-  volumes:
-    - ./guac_home:/opt/guacamole/.guacamole
+version: "3.9"
+
+services:
+  proxmox-console:
+    image: tamwt/vm-console:latest
+    container_name: proxmox-console
+    ports:
+      - "3000:3000"
+    restart: always
+    environment:
+      PROXMOX_URL: "https://192.168.1.132:8006"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      JWT_SECRET: "your-secret-key-at-least-32-chars"
+      RDP_ENCRYPTION_KEY: "your-secret-key-at-least-32-chars"
+      GUACD_HOST: "guacd"
+      GUACD_PORT: "4822"
+    depends_on:
+      - guacd
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacd
+    restart: always
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --interval 60
+      --cleanup
+      --label-enable
+    restart: always
 ```
-
-### 5. Update .env.local
-
-```env
-GUACAMOLE_URL=http://your-guacamole-server:8080
-GUACAMOLE_SECRET_KEY=your-32-hex-character-secret-key
-```
-
-> **Important**: The `GUACAMOLE_SECRET_KEY` must match the `json-secret-key` in your Guacamole server configuration!
 
 ---
 
 ## 🐳 Docker Support
 
-The project includes a `Dockerfile` and GitHub Actions workflow to automatically build and push images to Docker Hub.
-
-### Running with Docker
-
-You can run the application using Docker, providing custom environment variables at runtime:
+You can run the application using Docker:
 
 ```bash
 docker run -d \
   -p 3000:3000 \
-  -p 3001:3001 \
   -e PROXMOX_URL="https://192.168.1.100:8006" \
   -e NODE_TLS_REJECT_UNAUTHORIZED="0" \
   -e JWT_SECRET="your-secret-key-at-least-32-chars" \
-  -e GUACAMOLE_URL="http://192.168.1.155:8080" \
-  -e GUACAMOLE_SECRET_KEY="your-32-hex-character-secret-key" \
-  -e GUACAMOLE_PROXY_PORT="3001" \
-  -e GUACAMOLE_PROXY_PUBLIC_URL="https://your-domain.example/guac-console" \
+  -e RDP_ENCRYPTION_KEY="your-secret-key-at-least-32-chars" \
+  -e GUACD_HOST="192.168.1.155" \
+  -e GUACD_PORT="4822" \
   --name proxmox-console \
-  yourusername/proxmox-web-console:latest
+  tamwt/vm-console:latest
 ```
-
-*Note: `NODE_TLS_REJECT_UNAUTHORIZED="0"` is required if your Proxmox server uses a self-signed certificate.*
-*Note: Port `3001` is used internally for the isolated Guacamole viewer so it does not interfere with the main console on `3000`. When deploying behind Nginx, set `GUACAMOLE_PROXY_PUBLIC_URL` to the public reverse-proxy path, for example `https://host/guac-console`.*
-
-If `GUACAMOLE_PROXY_PUBLIC_URL` is not set, the app will auto-detect:
-- `localhost` or `127.0.0.1`: use `:3001`
-- any other host or domain behind reverse proxy: use `/guac-console`
 
 ---
 

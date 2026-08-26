@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  proxmox-console:
+    build: . # หรือ image: tamwt/vm-console:latest
+    container_name: proxmox-console
+    ports:
+      - "3000:3000"
+    restart: always
+    environment:
+      PROXMOX_URL: "https://192.168.1.1:8006"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      JWT_SECRET: "your-secret-key-at-least-32-chars"
+      RDP_ENCRYPTION_KEY: "your-secret-key-at-least-32-chars"
+      GUACD_HOST: "guacd"
+      GUACD_PORT: "4822"
+    depends_on:
+      - guacd
+
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacd
+    restart: always

@@ -125,7 +125,7 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
             return;
         }
 
-        if (!username.trim()) {
+        if (protocol !== 'vnc' && !username.trim()) {
             Swal.fire({
                 icon: 'warning',
                 title: 'Missing Username',
@@ -146,7 +146,8 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
                     host: host.trim(),
                     port: parseInt(port) || DEFAULT_PORTS[protocol],
                     username: username.trim(),
-                    password
+                    password,
+                    vmName: selectedVmForIps?.name || `${protocol.toUpperCase()} Console`
                 })
             });
 
