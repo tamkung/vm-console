@@ -204,7 +204,13 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
                     Guacamole Remote Console
                 </h2>
                 
-                <div className="space-y-4">
+                <form 
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        handleConnect();
+                    }}
+                    className="space-y-4"
+                >
                     {/* Protocol */}
                     <div>
                         <label className="block text-sm text-gray-300 mb-2">Protocol</label>
@@ -347,13 +353,14 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
                     {/* Buttons */}
                     <div className="flex gap-3 pt-2">
                         <button
+                            type="button"
                             onClick={onClose}
                             className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 px-4 rounded transition-colors"
                         >
                             Cancel
                         </button>
                         <button
-                            onClick={handleConnect}
+                            type="submit"
                             disabled={loading}
                             className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-semibold py-2.5 px-4 rounded transition-colors flex items-center justify-center gap-2"
                         >
@@ -375,7 +382,7 @@ export default function GuacamoleModal({ onClose, vms = [] }: GuacamoleModalProp
                             )}
                         </button>
                     </div>
-                </div>
+                </form>
             </div>
         </div>
     );

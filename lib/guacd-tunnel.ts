@@ -119,7 +119,7 @@ function isTunnelPing(str: string): boolean {
 /**
  * Asynchronously read a single complete Guacamole instruction from a TCP socket
  */
-function readNextInstruction(socket: net.Socket, timeoutMs = 8000): Promise<{ opcode: string; args: string[] }> {
+function readNextInstruction(socket: net.Socket, timeoutMs = 8000): Promise<{ opcode: string; args: string[]; remainingBuffer: Buffer }> {
     return new Promise((resolve, reject) => {
         let buffer = Buffer.alloc(0);
 
@@ -152,11 +152,7 @@ function readNextInstruction(socket: net.Socket, timeoutMs = 8000): Promise<{ op
             if (semiIndex !== -1) {
                 cleanup();
                 const instructionStr = str.substring(0, semiIndex);
-                // Put back unread bytes if any
                 const remaining = buffer.subarray(Buffer.byteLength(str.substring(0, semiIndex + 1), 'utf8'));
-                if (remaining.length > 0) {
-                    socket.unshift(remaining);
-                }
 
                 // Parse instruction elements
                 const elements: string[] = [];
@@ -174,9 +170,9 @@ function readNextInstruction(socket: net.Socket, timeoutMs = 8000): Promise<{ op
                 }
 
                 if (elements.length > 0) {
-                    resolve({ opcode: elements[0], args: elements.slice(1) });
+                    resolve({ opcode: elements[0], args: elements.slice(1), remainingBuffer: remaining });
                 } else {
-                    resolve({ opcode: '', args: [] });
+                    resolve({ opcode: '', args: [], remainingBuffer: remaining });
                 }
             }
         };
@@ -333,7 +329,7 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
                 'enable-audio-input': 'false',
                 'force-lossless': 'false',
                 'enable-drive': 'true',
-                'drive-path': `/tmp/guacamole-drive/${sessionUUID}`,
+                'drive-path': `/tmp/guac-${sessionUUID}`,
                 'create-drive-path': 'true',
                 'drive-name': 'Shared Files'
             });
@@ -354,7 +350,7 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
         tcpSocket.write(buildGuacInstruction('connect', ...connectArgs));
 
         // Step 5: Read ready instruction from guacd
-        const { opcode: readyOp, args: readyArgs } = await readNextInstruction(tcpSocket, 12000);
+        const { opcode: readyOp, args: readyArgs, remainingBuffer: readyRemaining } = await readNextInstruction(tcpSocket, 12000);
         if (readyOp !== 'ready') {
             const errorMsg = readyArgs[0] || 'RDP authentication failed or host unreachable';
             ws.send(buildGuacInstruction('error', errorMsg, '519'));
@@ -384,6 +380,17 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
 
         // Step 7: Stream framing from guacd TCP -> WebSocket
         const framer = new GuacStreamFramer();
+
+        // Forward any frames received in the ready buffer (e.g. filesystem instruction)
+        if (readyRemaining && readyRemaining.length > 0) {
+            const initialFrames = framer.feed(readyRemaining);
+            for (const frame of initialFrames) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(frame.toString('utf8'));
+                }
+            }
+        }
+
         tcpSocket.on('data', (chunk) => {
             if (!isHandshakeComplete) return;
             const completeFrames = framer.feed(chunk);

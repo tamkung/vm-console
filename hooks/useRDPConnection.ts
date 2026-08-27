@@ -17,6 +17,13 @@ export interface RemoteFileItem {
   mimetype: string;
 }
 
+export interface UploadProgressInfo {
+  filename: string;
+  progress: number;
+  currentFileIndex?: number;
+  totalFiles?: number;
+}
+
 export function useRDPConnection() {
   const [details, setDetails] = useState<RDPConnectionDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +31,13 @@ export function useRDPConnection() {
   const [disconnected, setDisconnected] = useState(false);
   const [disconnectReason, setDisconnectReason] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ filename: string; progress: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressInfo | null>(null);
+
+  // Sequential Upload Queue
+  const uploadQueueRef = useRef<File[]>([]);
+  const isUploadingRef = useRef(false);
+  const totalInBatchRef = useRef(1);
+  const currentBatchIndexRef = useRef(1);
 
   // Filesystem Explorer state
   const [files, setFiles] = useState<RemoteFileItem[]>([]);
@@ -345,6 +358,7 @@ export function useRDPConnection() {
         client.onfilesystem = (object: any) => {
           activeFilesystemRef.current = object;
           setHasFilesystem(true);
+          fetchFiles('/');
         };
 
         // Listen for rotating reconnect token from server (One-Time Token rotation)
@@ -356,10 +370,11 @@ export function useRDPConnection() {
           return true;
         };
 
-        // File download from remote session (unsolicited stream)
+        // File download from remote session (unsolicited stream from /Download folder)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         client.onfile = (stream: any, mimetype: string, filename: string) => {
           const reader = new Guacamole.BlobReader(stream, mimetype);
+          stream.sendAck('OK', 0x0000); // Acknowledge stream acceptance so guacd pumps file blobs
           reader.onend = () => {
             const blob = reader.getBlob();
             const blobUrl = URL.createObjectURL(blob);
@@ -516,18 +531,41 @@ export function useRDPConnection() {
     }
   };
 
-  const uploadFile = useCallback((file: File) => {
-    if (!guacClientRef.current) return;
+  const processNextInQueue = useCallback(() => {
+    if (uploadQueueRef.current.length === 0) {
+      isUploadingRef.current = false;
+      setTimeout(() => {
+        setUploadProgress(null);
+      }, 1200);
+      return;
+    }
+
+    isUploadingRef.current = true;
+    const file = uploadQueueRef.current.shift()!;
+    const currentIndex = currentBatchIndexRef.current++;
+    const totalFiles = totalInBatchRef.current;
 
     const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
     if (file.size > MAX_UPLOAD_SIZE) {
       alert(`File size exceeds 100MB limit: ${file.name}`);
+      processNextInQueue();
       return;
     }
 
-    setUploadProgress({ filename: file.name, progress: 0 });
+    if (!guacClientRef.current) {
+      isUploadingRef.current = false;
+      setUploadProgress(null);
+      return;
+    }
 
-    const stream = guacClientRef.current.createFileStream(file.type, file.name);
+    setUploadProgress({
+      filename: file.name,
+      progress: 0,
+      currentFileIndex: currentIndex,
+      totalFiles: totalFiles,
+    });
+
+    const stream = guacClientRef.current.createFileStream(file.type || 'application/octet-stream', file.name);
     const chunkSize = 4096;
     let offset = 0;
 
@@ -536,14 +574,21 @@ export function useRDPConnection() {
       if (status.isError()) {
         console.error('Upload chunk write failed:', status.message);
         alert(`Upload failed for ${file.name}: ${status.message}`);
-        setUploadProgress(null);
+        processNextInQueue();
         return;
       }
 
       if (offset >= file.size) {
         stream.sendEnd();
-        setUploadProgress({ filename: file.name, progress: 100 });
-        setTimeout(() => setUploadProgress(null), 1500);
+        setUploadProgress({
+          filename: file.name,
+          progress: 100,
+          currentFileIndex: currentIndex,
+          totalFiles: totalFiles,
+        });
+        setTimeout(() => {
+          processNextInQueue();
+        }, 150);
         return;
       }
 
@@ -561,12 +606,44 @@ export function useRDPConnection() {
 
           offset += chunkSize;
           const percent = Math.min(Math.round((offset / file.size) * 100), 100);
-          setUploadProgress({ filename: file.name, progress: percent });
+          setUploadProgress({
+            filename: file.name,
+            progress: percent,
+            currentFileIndex: currentIndex,
+            totalFiles: totalFiles,
+          });
         }
       };
       reader.readAsArrayBuffer(slice);
     };
   }, []);
+
+  const queueFilesForUpload = useCallback(
+    (filesToUpload: File[]) => {
+      if (filesToUpload.length === 0) return;
+
+      if (!isUploadingRef.current) {
+        totalInBatchRef.current = filesToUpload.length;
+        currentBatchIndexRef.current = 1;
+      } else {
+        totalInBatchRef.current += filesToUpload.length;
+      }
+
+      uploadQueueRef.current.push(...filesToUpload);
+
+      if (!isUploadingRef.current) {
+        processNextInQueue();
+      }
+    },
+    [processNextInQueue]
+  );
+
+  const uploadFile = useCallback(
+    (file: File) => {
+      queueFilesForUpload([file]);
+    },
+    [queueFilesForUpload]
+  );
 
   const handleDragOver = useCallback(
     (e: React.DragEvent) => {
@@ -590,10 +667,10 @@ export function useRDPConnection() {
 
       const files = Array.from(e.dataTransfer.files);
       if (files.length > 0) {
-        files.forEach((file) => uploadFile(file));
+        queueFilesForUpload(files);
       }
     },
-    [connecting, disconnected, uploadFile]
+    [connecting, disconnected, queueFilesForUpload]
   );
 
   const fetchFiles = useCallback((path: string = '/') => {
@@ -621,6 +698,7 @@ export function useRDPConnection() {
       activeFilesystemRef.current.requestInputStream(path, (stream: any) => {
         clearTimeout(timeoutId);
         const reader = new Guacamole.JSONReader(stream);
+        stream.sendAck('OK', 0x0000); // Acknowledge directory index stream
         reader.onend = () => {
           const json = reader.getJSON();
           const items: RemoteFileItem[] = [];
@@ -666,6 +744,7 @@ export function useRDPConnection() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       activeFilesystemRef.current.requestInputStream(item.path, (stream: any, mimetype: string) => {
         const reader = new Guacamole.BlobReader(stream, mimetype);
+        stream.sendAck('OK', 0x0000); // Acknowledge file stream download
         reader.onend = () => {
           const blob = reader.getBlob();
           const blobUrl = URL.createObjectURL(blob);

@@ -18,7 +18,16 @@ const KEYSYMS = {
 function GuacConsoleContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const openMode = searchParams?.get('mode') || 'same-tab';
+  const [openMode, setOpenMode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get('mode');
+      if (mode === 'new-tab' || window.opener || window.history.length <= 1) {
+        return 'new-tab';
+      }
+    }
+    return searchParams?.get('mode') || 'same-tab';
+  });
   const proxyInputRef = useRef<HTMLInputElement>(null);
 
   const [showToolbar, setShowToolbar] = useState(true);
@@ -51,6 +60,9 @@ function GuacConsoleContent() {
   const handleBack = () => {
     if (openMode === 'new-tab') {
       window.close();
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 200);
     } else {
       router.push('/dashboard');
     }
@@ -127,7 +139,7 @@ function GuacConsoleContent() {
         }`}
       >
         <div className="bg-gray-900/95 backdrop-blur-md border-b border-gray-800 px-3 py-1 flex items-center justify-between h-10 shadow-lg">
-          {/* Left: Info & Back */}
+          {/* Left: Info & Back/Close */}
           <div className="flex items-center gap-3 flex-1">
             <button
               onClick={(e) => {
@@ -135,11 +147,21 @@ function GuacConsoleContent() {
                 handleBack();
               }}
               className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1 rounded text-xs flex items-center gap-1.5 transition-colors border border-gray-700"
+              title={openMode === 'new-tab' ? 'Close Tab' : 'Back to Dashboard'}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              {openMode === 'new-tab' ? 'Close' : 'Back'}
+              {openMode === 'new-tab' ? (
+                <>
+                  <span className="text-xs font-bold text-gray-400">✕</span>
+                  <span>Close</span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Back</span>
+                </>
+              )}
             </button>
 
             <div className="flex items-center gap-2">
@@ -330,14 +352,22 @@ function GuacConsoleContent() {
 
         {/* Upload Progress Bar */}
         {uploadProgress && (
-          <div className="absolute bottom-6 right-6 z-40 bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-2xl w-80 space-y-2">
-            <div className="flex justify-between text-xs text-white">
-              <span className="truncate max-w-[180px] font-medium">{uploadProgress.filename}</span>
-              <span className="text-emerald-400 font-mono">{uploadProgress.progress}%</span>
+          <div className="absolute bottom-6 right-6 z-40 bg-gray-900/95 border border-gray-700/80 p-4 rounded-xl shadow-2xl w-84 space-y-2.5 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <div className="flex items-center justify-between text-xs text-white">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-emerald-400">⬆️</span>
+                <span className="truncate max-w-[180px] font-medium">{uploadProgress.filename}</span>
+                {uploadProgress.totalFiles && uploadProgress.totalFiles > 1 && (
+                  <span className="text-[10px] text-gray-400 font-mono flex-shrink-0 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
+                    {uploadProgress.currentFileIndex}/{uploadProgress.totalFiles}
+                  </span>
+                )}
+              </div>
+              <span className="text-emerald-400 font-mono font-semibold ml-2">{uploadProgress.progress}%</span>
             </div>
-            <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden border border-gray-700/50">
               <div
-                className="bg-emerald-500 h-full transition-all duration-150"
+                className="bg-emerald-500 h-full transition-all duration-150 rounded-full"
                 style={{ width: `${uploadProgress.progress}%` }}
               />
             </div>
