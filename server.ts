@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { shareStore } from './lib/store';
 import { handleGuacdConnection } from './lib/guacd-tunnel';
+import { handleSSHConnection } from './lib/ssh-tunnel';
 
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
@@ -107,16 +108,31 @@ app.prepare().then(() => {
         handleGuacdConnection(ws, req);
     });
 
+    // Native SSH + SFTP WebSocket Server (/ws/ssh)
+    const sshWss = new WebSocketServer({ noServer: true });
+    sshWss.on('connection', (ws, req) => {
+        handleSSHConnection(ws, req);
+    });
+
     server.on('request', (req, res) => {
         const parsedUrl = parse(req.url!, true);
+        const { pathname } = parsedUrl;
 
-        if (parsedUrl.pathname?.startsWith('/api/proxy')) {
-            // @ts-ignore
-            proxy(req, res, (err: unknown) => {
+        // Custom API / Tunnel routes
+        if (pathname === '/api/tunnel' || pathname === '/api/guacamole/tunnel') {
+            res.writeHead(501, { 'Content-Type': 'text/plain' });
+            res.end('HTTP tunnel endpoint is disabled. Use direct WebSocket connection to /ws/guacd.');
+            return;
+        }
+
+        // Forward normal API / Proxmox calls
+        if (pathname?.startsWith('/api/proxy')) {
+            const target = resolveProxyTarget(req);
+            (proxy as any)(req, res, (err: any) => {
                 if (err) {
-                    console.error('Proxmox proxy request failed:', err);
+                    console.error('[Proxy Error]:', err);
                     if (!res.headersSent) {
-                        res.statusCode = 502;
+                        res.writeHead(502, { 'Content-Type': 'text/plain' });
                         res.end('Bad gateway');
                     }
                 }
@@ -138,6 +154,13 @@ app.prepare().then(() => {
         if (pathname === '/ws/guacd' || pathname.startsWith('/ws/guacd')) {
             guacWss.handleUpgrade(req, socket, head, (ws) => {
                 guacWss.emit('connection', ws, req);
+            });
+            return;
+        }
+
+        if (pathname === '/ws/ssh' || pathname.startsWith('/ws/ssh')) {
+            sshWss.handleUpgrade(req, socket, head, (ws) => {
+                sshWss.emit('connection', ws, req);
             });
             return;
         }

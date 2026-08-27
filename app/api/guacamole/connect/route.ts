@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
         });
 
         // Direct console URL in same app
-        const consoleUrl = `/console/guac?token=${encodeURIComponent(token)}${vmName ? `&title=${encodeURIComponent(vmName)}` : ''}&proto=${protocol || 'rdp'}&user=${encodeURIComponent((username || '').trim())}`;
+        const consoleBase = protocol === 'ssh' ? '/console/ssh' : '/console/guac';
+        const consoleUrl = `${consoleBase}?token=${encodeURIComponent(token)}${vmName ? `&title=${encodeURIComponent(vmName)}` : ''}&proto=${protocol || 'rdp'}&user=${encodeURIComponent((username || '').trim())}`;
 
         return NextResponse.json({
             success: true,
