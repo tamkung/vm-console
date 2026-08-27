@@ -8,6 +8,7 @@ export interface RDPConnectionDetails {
   username?: string;
   password?: string;
   vmName?: string;
+  consoleType?: 'rdp' | 'ssh' | 'vnc';
 }
 
 export interface RemoteFileItem {
@@ -24,6 +25,15 @@ export interface UploadProgressInfo {
   totalFiles?: number;
 }
 
+export const getDefaultFilesystemPath = (consoleType?: string, username?: string): string => {
+  if (consoleType === 'ssh') {
+    const user = (username || '').trim().toLowerCase();
+    if (!user || user === 'root') return '/root';
+    return `/home/${user}`;
+  }
+  return '/';
+};
+
 export function useRDPConnection() {
   const [details, setDetails] = useState<RDPConnectionDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,9 +43,13 @@ export function useRDPConnection() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressInfo | null>(null);
 
-  // Sequential Upload Queue
-  const uploadQueueRef = useRef<File[]>([]);
+  // Sequential Upload Queue & Stream Control
+  const uploadQueueRef = useRef<{ file: File; targetPath: string }[]>([]);
   const isUploadingRef = useRef(false);
+  const lastUploadedFolderRef = useRef<string>('/');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currentStreamRef = useRef<any>(null);
+  const isCancelledRef = useRef(false);
   const totalInBatchRef = useRef(1);
   const currentBatchIndexRef = useRef(1);
 
@@ -184,6 +198,14 @@ export function useRDPConnection() {
         // Mouse input binding
         let mouseRafId: number | null = null;
         let pendingMouseEvent: MouseEvent | null = null;
+        let autoScrollTimer: NodeJS.Timeout | null = null;
+
+        const stopAutoScroll = () => {
+          if (autoScrollTimer) {
+            clearInterval(autoScrollTimer);
+            autoScrollTimer = null;
+          }
+        };
 
         const sendMouseEvent = (e: MouseEvent) => {
           if (!guacClientRef.current) return;
@@ -196,6 +218,30 @@ export function useRDPConnection() {
 
           const mouseState = new Guacamole.Mouse.State(mouseX, mouseY, left, middle, right, false, false);
           client.sendMouseState(mouseState);
+
+          // Auto-scroll when dragging left-click near or past boundaries (e.g. text selection in SSH/terminal)
+          if (left) {
+            const displayH = client.getDisplay()?.getHeight() || 600;
+            const isNearTop = mouseY <= 25;
+            const isNearBottom = mouseY >= displayH - 25;
+
+            if (isNearTop || isNearBottom) {
+              if (!autoScrollTimer) {
+                autoScrollTimer = setInterval(() => {
+                  if (!guacClientRef.current) return;
+                  const isUp = isNearTop;
+                  const scrollPress = new Guacamole.Mouse.State(mouseX, mouseY, true, false, false, isUp, !isUp);
+                  const scrollRelease = new Guacamole.Mouse.State(mouseX, mouseY, true, false, false, false, false);
+                  client.sendMouseState(scrollPress);
+                  client.sendMouseState(scrollRelease);
+                }, 80);
+              }
+            } else {
+              stopAutoScroll();
+            }
+          } else {
+            stopAutoScroll();
+          }
         };
 
         const processPendingMouseEvent = () => {
@@ -219,6 +265,9 @@ export function useRDPConnection() {
           }
           pendingMouseEvent = null;
           sendMouseEvent(e);
+          if ((e.buttons & 1) === 0) {
+            stopAutoScroll();
+          }
         };
 
         const handleMouseDown = (e: MouseEvent) => {
@@ -246,6 +295,10 @@ export function useRDPConnection() {
         displayEl.addEventListener('mouseup', flushPendingMouseEvent);
         displayEl.addEventListener('contextmenu', handleContextMenu);
         displayEl.addEventListener('wheel', handleWheel, { passive: false });
+
+        // Global mouseup/mousemove listeners to maintain smooth drag selection outside canvas
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', flushPendingMouseEvent);
 
         // Keyboard input binding
         const pressedKeys = new Map<string, number>();
@@ -353,12 +406,14 @@ export function useRDPConnection() {
           };
         };
 
-        // Remote virtual filesystem attached (for Shared Files drive)
+        // Remote virtual filesystem attached (for Shared Files drive or SFTP)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         client.onfilesystem = (object: any) => {
           activeFilesystemRef.current = object;
           setHasFilesystem(true);
-          fetchFiles('/');
+          const initialPath = getDefaultFilesystemPath(connData.consoleType, connData.username);
+          setCurrentPath(initialPath);
+          fetchFiles(initialPath);
         };
 
         // Listen for rotating reconnect token from server (One-Time Token rotation)
@@ -461,12 +516,19 @@ export function useRDPConnection() {
     try {
       const initParams = new URLSearchParams(window.location.search);
       const tokenParam = initParams.get('token');
-      const titleParam = initParams.get('title') || 'Remote Desktop';
+      const titleParam = initParams.get('title') || 'Remote Console';
+      const protoParam = (initParams.get('proto') || 'rdp') as 'rdp' | 'ssh' | 'vnc';
+      const userParam = initParams.get('user') || '';
 
       if (tokenParam) {
+        const initialPath = getDefaultFilesystemPath(protoParam, userParam);
+        setCurrentPath(initialPath);
+
         const connectionData: RDPConnectionDetails = {
           token: tokenParam,
           vmName: titleParam,
+          consoleType: protoParam,
+          username: userParam,
         };
         setDetails(connectionData);
         connectGuacd(connectionData);
@@ -531,9 +593,27 @@ export function useRDPConnection() {
     }
   };
 
+  const cancelUpload = useCallback(() => {
+    isCancelledRef.current = true;
+    if (currentStreamRef.current) {
+      try {
+        currentStreamRef.current.sendEnd();
+      } catch {
+        // ignore
+      }
+      currentStreamRef.current = null;
+    }
+    uploadQueueRef.current = [];
+    isUploadingRef.current = false;
+    setUploadProgress(null);
+  }, []);
+
   const processNextInQueue = useCallback(() => {
     if (uploadQueueRef.current.length === 0) {
       isUploadingRef.current = false;
+      if (activeFilesystemRef.current) {
+        fetchFiles(lastUploadedFolderRef.current || currentPath);
+      }
       setTimeout(() => {
         setUploadProgress(null);
       }, 1200);
@@ -541,7 +621,9 @@ export function useRDPConnection() {
     }
 
     isUploadingRef.current = true;
-    const file = uploadQueueRef.current.shift()!;
+    isCancelledRef.current = false;
+    const { file, targetPath } = uploadQueueRef.current.shift()!;
+    lastUploadedFolderRef.current = targetPath;
     const currentIndex = currentBatchIndexRef.current++;
     const totalFiles = totalInBatchRef.current;
 
@@ -565,21 +647,47 @@ export function useRDPConnection() {
       totalFiles: totalFiles,
     });
 
-    const stream = guacClientRef.current.createFileStream(file.type || 'application/octet-stream', file.name);
-    const chunkSize = 4096;
+    const cleanDir = targetPath === '/' ? '' : targetPath.replace(/\/$/, '');
+    const fullPath = `${cleanDir}/${file.name}`;
+    const mimetype = file.type || 'application/octet-stream';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let stream: any;
+    if (activeFilesystemRef.current && typeof activeFilesystemRef.current.createOutputStream === 'function') {
+      stream = activeFilesystemRef.current.createOutputStream(mimetype, fullPath);
+    } else {
+      stream = guacClientRef.current.createFileStream(mimetype, file.name);
+    }
+
+    currentStreamRef.current = stream;
+    const chunkSize = 6048; // Max allowed raw bytes per Guacamole protocol instruction limit (8192 bytes)
     let offset = 0;
 
+    // Track server status or errors
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     stream.onack = (status: any) => {
       if (status.isError()) {
-        console.error('Upload chunk write failed:', status.message);
+        console.error('Upload stream error from server:', status.message);
         alert(`Upload failed for ${file.name}: ${status.message}`);
+        isCancelledRef.current = true;
+        currentStreamRef.current = null;
         processNextInQueue();
+      }
+    };
+
+    const pump = () => {
+      if (isCancelledRef.current) {
+        currentStreamRef.current = null;
         return;
       }
 
       if (offset >= file.size) {
-        stream.sendEnd();
+        try {
+          stream.sendEnd();
+        } catch {
+          // ignore
+        }
+        currentStreamRef.current = null;
         setUploadProgress({
           filename: file.name,
           progress: 100,
@@ -592,55 +700,102 @@ export function useRDPConnection() {
         return;
       }
 
-      const slice = file.slice(offset, offset + chunkSize);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result && e.target.result instanceof ArrayBuffer) {
-          const bytes = new Uint8Array(e.target.result);
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const base64 = window.btoa(binary);
-          stream.sendBlob(base64);
+      // Stream a burst of 8 chunks (~48KB) sequentially per event loop tick
+      const burstLimit = Math.min(offset + chunkSize * 8, file.size);
 
-          offset += chunkSize;
-          const percent = Math.min(Math.round((offset / file.size) * 100), 100);
+      const readNextChunkInBurst = () => {
+        if (isCancelledRef.current) {
+          currentStreamRef.current = null;
+          return;
+        }
+
+        if (offset >= burstLimit || offset >= file.size) {
+          const percent = Math.min(Math.round((offset / file.size) * 100), 99);
           setUploadProgress({
             filename: file.name,
             progress: percent,
             currentFileIndex: currentIndex,
             totalFiles: totalFiles,
           });
+
+          if (offset < file.size && !isCancelledRef.current) {
+            setTimeout(pump, 15);
+          } else if (offset >= file.size && !isCancelledRef.current) {
+            pump();
+          }
+          return;
         }
+
+        const currentSliceLength = Math.min(chunkSize, file.size - offset);
+        const slice = file.slice(offset, offset + currentSliceLength);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (isCancelledRef.current) return;
+          const dataUrl = e.target?.result;
+          if (typeof dataUrl === 'string') {
+            const commaIdx = dataUrl.indexOf(',');
+            const base64 = commaIdx !== -1 ? dataUrl.substring(commaIdx + 1) : dataUrl;
+            try {
+              stream.sendBlob(base64);
+            } catch (err) {
+              console.error('[Upload] sendBlob error:', err);
+            }
+            offset += currentSliceLength;
+            readNextChunkInBurst();
+          }
+        };
+        reader.readAsDataURL(slice);
       };
-      reader.readAsArrayBuffer(slice);
+
+      readNextChunkInBurst();
     };
+
+    // Begin pumping chunks
+    pump();
   }, []);
 
   const queueFilesForUpload = useCallback(
-    (filesToUpload: File[]) => {
+    (filesToUpload: File[], customTargetDir?: string) => {
       if (filesToUpload.length === 0) return;
 
-      if (!isUploadingRef.current) {
-        totalInBatchRef.current = filesToUpload.length;
-        currentBatchIndexRef.current = 1;
-      } else {
-        totalInBatchRef.current += filesToUpload.length;
+      const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB limit
+      const validFiles: File[] = [];
+      const oversizeFiles: string[] = [];
+
+      for (const file of filesToUpload) {
+        if (file.size > MAX_UPLOAD_SIZE) {
+          oversizeFiles.push(file.name);
+        } else {
+          validFiles.push(file);
+        }
       }
 
-      uploadQueueRef.current.push(...filesToUpload);
+      if (oversizeFiles.length > 0) {
+        alert(`File size exceeds 100MB limit: ${oversizeFiles.join(', ')}`);
+      }
+
+      if (validFiles.length === 0) return;
+
+      if (!isUploadingRef.current) {
+        totalInBatchRef.current = validFiles.length;
+        currentBatchIndexRef.current = 1;
+      } else {
+        totalInBatchRef.current += validFiles.length;
+      }
+
+      const targetDir = customTargetDir || currentPath || '/';
+      uploadQueueRef.current.push(...validFiles.map((file) => ({ file, targetPath: targetDir })));
 
       if (!isUploadingRef.current) {
         processNextInQueue();
       }
     },
-    [processNextInQueue]
+    [processNextInQueue, currentPath]
   );
 
   const uploadFile = useCallback(
-    (file: File) => {
-      queueFilesForUpload([file]);
+    (file: File, customTargetDir?: string) => {
+      queueFilesForUpload([file], customTargetDir);
     },
     [queueFilesForUpload]
   );
@@ -776,6 +931,7 @@ export function useRDPConnection() {
     fetchFiles,
     downloadFile,
     uploadFile,
+    cancelUpload,
     displayContainerRef,
     sendSpecialKey,
     handleReconnect,

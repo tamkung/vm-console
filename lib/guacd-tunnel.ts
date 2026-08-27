@@ -338,7 +338,8 @@ export async function handleGuacdConnection(ws: WebSocket, req: IncomingMessage)
                 'font-size': '14',
                 'color-scheme': 'white-black',
                 'server-layout': 'en-us-qwerty',
-                'enable-sftp': 'true'
+                'enable-sftp': 'true',
+                'scrollback': '2000'
             });
         } else if (proto === 'vnc') {
             Object.assign(paramMap, {

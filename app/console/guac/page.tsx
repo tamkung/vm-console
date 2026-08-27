@@ -13,6 +13,8 @@ const KEYSYMS = {
   TAB: 0xff09,
   ESC: 0xff1b,
   SUPER_L: 0xffeb, // Windows key
+  KEY_C: 0x0063,
+  KEY_Z: 0x007a,
 };
 
 function GuacConsoleContent() {
@@ -47,6 +49,7 @@ function GuacConsoleContent() {
     fetchFiles,
     downloadFile,
     uploadFile,
+    cancelUpload,
     displayContainerRef,
     sendSpecialKey,
     handleReconnect,
@@ -187,62 +190,113 @@ function GuacConsoleContent() {
             ▲ Hide Controls
           </button>
 
-          {/* Right: Key Injections + Actions */}
+          {/* Right: Key Injections + Actions (Protocol Aware) */}
           <div className="flex items-center gap-1.5 flex-1 justify-end">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                sendSpecialKey([KEYSYMS.CTRL_L, KEYSYMS.ALT_L, KEYSYMS.DEL]);
-              }}
-              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
-              title="Send Ctrl+Alt+Delete"
-            >
-              Ctrl+Alt+Del
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                sendSpecialKey([KEYSYMS.SUPER_L]);
-              }}
-              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
-              title="Send Windows Key"
-            >
-              Win
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                sendSpecialKey([KEYSYMS.ALT_L, KEYSYMS.TAB]);
-              }}
-              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
-              title="Send Alt+Tab"
-            >
-              Alt+Tab
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                sendSpecialKey([KEYSYMS.ESC]);
-              }}
-              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
-              title="Send Esc"
-            >
-              Esc
-            </button>
+            {details?.consoleType === 'ssh' ? (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.CTRL_L, KEYSYMS.KEY_C]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Ctrl+C (Interrupt)"
+                >
+                  Ctrl+C
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.CTRL_L, KEYSYMS.KEY_Z]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Ctrl+Z (Suspend)"
+                >
+                  Ctrl+Z
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.TAB]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Tab (Autocomplete)"
+                >
+                  Tab
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.ESC]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Esc"
+                >
+                  Esc
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.CTRL_L, KEYSYMS.ALT_L, KEYSYMS.DEL]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Ctrl+Alt+Delete"
+                >
+                  Ctrl+Alt+Del
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.SUPER_L]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Windows Key"
+                >
+                  Win
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.ALT_L, KEYSYMS.TAB]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Alt+Tab"
+                >
+                  Alt+Tab
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendSpecialKey([KEYSYMS.ESC]);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2 py-1 rounded text-[11px] font-mono border border-gray-700 transition-colors"
+                  title="Send Esc"
+                >
+                  Esc
+                </button>
+              </>
+            )}
 
-            <div className="w-px h-4 bg-gray-700 mx-0.5" />
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowFileManager(true);
-                fetchFiles('/');
-              }}
-              className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 py-1 rounded text-xs border border-gray-700 transition-colors flex items-center gap-1.5 font-medium"
-              title="Browse, Upload & Download Shared Files"
-            >
-              <span>📁</span> Files
-            </button>
+            {/* Files button: Only show for RDP and SSH (not standard VNC) */}
+            {details?.consoleType !== 'vnc' && (
+              <>
+                <div className="w-px h-4 bg-gray-700 mx-0.5" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowFileManager(true);
+                    fetchFiles(currentPath);
+                  }}
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 py-1 rounded text-xs border border-gray-700 transition-colors flex items-center gap-1.5 font-medium"
+                  title={details?.consoleType === 'ssh' ? 'Browse & Upload Files (SFTP)' : 'Browse, Upload & Download Shared Files'}
+                >
+                  <span>📁</span> Files
+                </button>
+              </>
+            )}
 
             <button
               onClick={(e) => {
@@ -344,36 +398,45 @@ function GuacConsoleContent() {
               </div>
               <div className="text-center">
                 <h3 className="text-lg font-bold text-white mb-0.5">Drop Files to Upload</h3>
-                <p className="text-gray-400 text-xs">Files will be transferred directly to the remote session</p>
+                <p className="text-gray-400 text-xs">Files will be transferred directly to the remote session (Max 100MB per file)</p>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Upload Progress Bar */}
-        {uploadProgress && (
-          <div className="absolute bottom-6 right-6 z-40 bg-gray-900/95 border border-gray-700/80 p-4 rounded-xl shadow-2xl w-84 space-y-2.5 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150">
-            <div className="flex items-center justify-between text-xs text-white">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-emerald-400">⬆️</span>
-                <span className="truncate max-w-[180px] font-medium">{uploadProgress.filename}</span>
-                {uploadProgress.totalFiles && uploadProgress.totalFiles > 1 && (
-                  <span className="text-[10px] text-gray-400 font-mono flex-shrink-0 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
-                    {uploadProgress.currentFileIndex}/{uploadProgress.totalFiles}
-                  </span>
-                )}
-              </div>
-              <span className="text-emerald-400 font-mono font-semibold ml-2">{uploadProgress.progress}%</span>
-            </div>
-            <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden border border-gray-700/50">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-150 rounded-full"
-                style={{ width: `${uploadProgress.progress}%` }}
-              />
             </div>
           </div>
         )}
       </main>
+
+      {/* Upload Progress Bar with Cancel Button (Shows on bottom-right when modal is closed) */}
+      {!showFileManager && uploadProgress && (
+        <div className="fixed bottom-6 right-6 z-[70] bg-gray-900/95 border border-gray-700/80 p-3.5 rounded-xl shadow-2xl w-88 space-y-2 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="flex items-center justify-between text-xs text-white">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+              <span className="text-emerald-400">⬆️</span>
+              <span className="truncate font-medium">{uploadProgress.filename}</span>
+              {uploadProgress.totalFiles && uploadProgress.totalFiles > 1 && (
+                <span className="text-[10px] text-gray-400 font-mono flex-shrink-0 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
+                  {uploadProgress.currentFileIndex}/{uploadProgress.totalFiles}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-emerald-400 font-mono font-semibold">{uploadProgress.progress}%</span>
+              <button
+                onClick={cancelUpload}
+                className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-800 hover:bg-red-900/60 hover:text-red-400 text-gray-400 text-xs transition-colors border border-gray-700 hover:border-red-700"
+                title="Cancel upload"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden border border-gray-700/50">
+            <div
+              className="bg-emerald-500 h-full transition-all duration-100 rounded-full"
+              style={{ width: `${uploadProgress.progress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Proxy Input for Virtual Keyboard Support on Tablets */}
       <input
@@ -398,9 +461,11 @@ function GuacConsoleContent() {
         loading={loadingFiles}
         hasFilesystem={hasFilesystem}
         currentPath={currentPath}
+        uploadProgress={uploadProgress}
         onNavigate={fetchFiles}
         onDownload={downloadFile}
         onUpload={uploadFile}
+        onCancelUpload={cancelUpload}
         onRefresh={() => fetchFiles(currentPath)}
       />
     </div>

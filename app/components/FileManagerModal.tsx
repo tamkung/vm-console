@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useRef } from 'react';
-import { RemoteFileItem } from '@/hooks/useRDPConnection';
+import React, { useRef, useState } from 'react';
+import { RemoteFileItem, UploadProgressInfo } from '@/hooks/useRDPConnection';
 
 interface FileManagerModalProps {
   isOpen: boolean;
@@ -10,9 +10,11 @@ interface FileManagerModalProps {
   loading: boolean;
   hasFilesystem: boolean;
   currentPath: string;
+  uploadProgress?: UploadProgressInfo | null;
   onNavigate: (path: string) => void;
   onDownload: (file: RemoteFileItem) => void;
-  onUpload: (file: File) => void;
+  onUpload: (file: File, targetPath?: string) => void;
+  onCancelUpload?: () => void;
   onRefresh: () => void;
 }
 
@@ -23,21 +25,46 @@ export default function FileManagerModal({
   loading,
   hasFilesystem,
   currentPath,
+  uploadProgress,
   onNavigate,
   onDownload,
   onUpload,
+  onCancelUpload,
   onRefresh,
 }: FileManagerModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isModalDragging, setIsModalDragging] = useState(false);
 
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (selectedFiles && selectedFiles.length > 0) {
-      Array.from(selectedFiles).forEach((file) => onUpload(file));
+      Array.from(selectedFiles).forEach((file) => onUpload(file, currentPath));
       // Reset input
       e.target.value = '';
+    }
+  };
+
+  const handleModalDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsModalDragging(true);
+  };
+
+  const handleModalDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsModalDragging(false);
+  };
+
+  const handleModalDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsModalDragging(false);
+    const droppedFiles = e.dataTransfer?.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      Array.from(droppedFiles).forEach((file) => onUpload(file, currentPath));
     }
   };
 
@@ -95,9 +122,12 @@ export default function FileManagerModal({
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
       onClick={onClose}
+      onDragOver={handleModalDragOver}
+      onDragLeave={handleModalDragLeave}
+      onDrop={handleModalDrop}
     >
       <div
-        className="bg-gray-900 border border-gray-700/80 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        className={`bg-gray-900 border ${isModalDragging ? 'border-emerald-400 ring-2 ring-emerald-500/50' : 'border-gray-700/80'} rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] transition-all`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -170,6 +200,41 @@ export default function FileManagerModal({
             </button>
           </div>
         </div>
+
+        {/* Upload Progress Bar inside modal */}
+        {uploadProgress && (
+          <div className="mx-5 my-2.5 bg-gray-950/80 border border-emerald-500/30 p-3 rounded-xl space-y-2 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between text-xs text-white">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+                <span className="text-emerald-400 animate-pulse">⬆️</span>
+                <span className="truncate font-medium">{uploadProgress.filename}</span>
+                {uploadProgress.totalFiles && uploadProgress.totalFiles > 1 && (
+                  <span className="text-[10px] text-gray-400 font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
+                    {uploadProgress.currentFileIndex}/{uploadProgress.totalFiles}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-emerald-400 font-mono font-semibold">{uploadProgress.progress}%</span>
+                {onCancelUpload && (
+                  <button
+                    onClick={onCancelUpload}
+                    className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-800 hover:bg-red-900/60 hover:text-red-400 text-gray-400 text-xs transition-colors border border-gray-700"
+                    title="Cancel upload"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden border border-gray-700/50">
+              <div
+                className="bg-emerald-500 h-full transition-all duration-100 rounded-full"
+                style={{ width: `${uploadProgress.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* File List Content */}
         <div className="flex-1 overflow-y-auto p-3 min-h-[250px] max-h-[420px]">
@@ -269,7 +334,7 @@ export default function FileManagerModal({
         <div className="px-5 py-3 border-t border-gray-800 bg-gray-950/80 text-[11px] text-gray-400 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <span>💡</span>
-            <span>Tip: Drag & drop any file directly onto the console window to upload.</span>
+            <span>Tip: Drag & drop any file directly onto the console window to upload (Max 100MB per file).</span>
           </div>
           <button
             onClick={onClose}
